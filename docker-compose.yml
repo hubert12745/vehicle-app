@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  api:
+    build: ./backend
+    env_file: .env.docker
+    ports: ["8000:8000"]
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads      # trwałe pliki
+  web:
+    image: node:20
+    working_dir: /app
+    command: sh -c "npm install && npx expo start --web --tunnel"
+    volumes:
+      - ./mobile:/app
+    ports: ["19006:19006"]
