@@ -1,17 +1,28 @@
 version: "3.9"
-
 services:
   api:
     build: ./backend
     env_file: .env.docker
-    ports: ["8000:8000"]
+    ports:
+      - "8000:8000"
     volumes:
       - ./backend:/app
-      - ./uploads:/app/uploads      # trwałe pliki
+
   web:
-    image: node:20
-    working_dir: /app
-    command: sh -c "npm install && npx expo start --web --tunnel"
+    build: ./mobile
+    environment:
+      EXPO_NO_TUNNEL: "1"            # disable ngrok/tunnel
+      CHOKIDAR_USEPOLLING: "true"    # force polling watcher
+      WATCHPACK_POLLING: "true"      # watchpack poll mode
+      WATCHPACK_POLL_INTERVAL: "100" # ms between polls
     volumes:
       - ./mobile:/app
-    ports: ["19006:19006"]
+      - mobile_node_modules:/app/node_modules
+    ports:
+      - "19006:19006"
+    command: >
+      sh -c "unset CI &&
+             npm install &&
+             npx expo start --web --host lan --port 19006 --clear"
+volumes:
+  mobile_node_modules: {}

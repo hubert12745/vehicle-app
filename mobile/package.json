@@ -10,17 +10,17 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~5.0.4",
     "@react-navigation/native": "^7.1.14",
     "axios": "^1.10.0",
-    "expo": "~53.0.17",
+    "expo": "^53.0.20",
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.5",
     "react-native-svg": "15.11.2",
     "react-native-web": "~0.20.0",
-    "victory-native": "^41.17.4",
-    "@expo/metro-runtime": "~5.0.4"
+    "victory-native": "^41.17.4"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -49,3 +49,8 @@ npm start -- --web
 
 # W katalogu głównym projektu:
 docker compose up --build
+
+Backend:
+http://localhost:8000/docs
+Frontend:
+http://localhost:19006/
