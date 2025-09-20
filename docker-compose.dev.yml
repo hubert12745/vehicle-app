@@ -1,0 +1,9 @@
+version: "3.9"
+services:
+  api:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+    working_dir: /app
+    ports:
+      - "8000:8000"
