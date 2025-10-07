@@ -1,38 +1,26 @@
-from fastapi import FastAPI, Depends, HTTPException, Form, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from typing import List
 from datetime import timedelta
-from jose import JWTError, jwt
 
 from db import init_db, get_session
-from models import (
-    User, UserCreate, UserRead, UserLogin,
-    Vehicle, VehicleCreate, VehicleRead,
-    FuelEntry, FuelEntryCreate, FuelEntryRead,
-    ServiceEvent, ServiceEventCreate, ServiceEventRead,
-)
-from auth import hash_password, verify_password, create_access_token
+from models import User, Vehicle, FuelEntry, ServiceEvent, UserCreate, UserRead, Token
+from auth import hash_password, verify_password, create_access_token, get_current_user
 
-# --- konfiguracja JWT ---
-SECRET_KEY = "secret123"  # w praktyce .env
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+app = FastAPI(title="Vehicle App API")
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
-app = FastAPI()
-
-# --- CORS ---
+# ✅ CORS — pozwalamy na połączenia z frontendu
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # na razie pozwalamy wszystkim
+    allow_origins=["*"],  # możesz ograniczyć np. do ["http://localhost:19006"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ✅ inicjalizacja bazy
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -40,119 +28,130 @@ def on_startup():
 
 @app.get("/")
 def root():
-    return {"msg": "Vehicle API is running"}
+    return {"msg": "Vehicle API działa 🚀"}
 
 
 # -------------------------------
-# Auth helpers
-# -------------------------------
-def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = int(payload.get("sub"))
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
-
-
-# -------------------------------
-# Auth endpoints
+# 🔐 Rejestracja i logowanie
 # -------------------------------
 @app.post("/register/", response_model=UserRead)
-def register(user: UserCreate, session: Session = Depends(get_session)):
-    db_user = session.exec(select(User).where(User.email == user.email)).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+def register(user_data: UserCreate, session: Session = Depends(get_session)):
+    existing = session.exec(select(User).where(User.email == user_data.email)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email już istnieje")
 
-    new_user = User(email=user.email, password_hash=hash_password(user.password))
+    hashed_pw = hash_password(user_data.password)
+    new_user = User(email=user_data.email, password_hash=hashed_pw)
     session.add(new_user)
     session.commit()
     session.refresh(new_user)
     return new_user
 
 
-@app.post("/login/")
+@app.post("/login/", response_model=Token)
 def login(
-    email: str = Form(...),
-    password: str = Form(...),
+    form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session)
 ):
-    user = session.exec(select(User).where(User.email == email)).first()
-    if not user or not verify_password(password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Nieprawidłowe dane logowania")
 
-    token = create_access_token({"sub": str(user.id)})
-    return {"access_token": token, "token_type": "bearer"}
-
-@app.get("/me", response_model=UserRead)
-def read_me(current_user: User = Depends(get_current_user)):
-    return current_user
+    access_token = create_access_token({"sub": str(user.id)}, expires_delta=timedelta(hours=1))
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 # -------------------------------
-# Vehicles
+# 🚗 Vehicles
 # -------------------------------
-@app.post("/vehicles/", response_model=VehicleRead)
-def create_vehicle(vehicle: VehicleCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    if vehicle.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Cannot add vehicle for another user")
+@app.get("/vehicles/", response_model=List[Vehicle])
+def list_vehicles(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    vehicles = session.exec(select(Vehicle).where(Vehicle.user_id == current_user.id)).all()
+    return vehicles
 
-    db_vehicle = Vehicle.from_orm(vehicle)
-    session.add(db_vehicle)
+
+@app.post("/vehicles/", response_model=Vehicle)
+def create_vehicle(
+    vehicle: Vehicle,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    vehicle.user_id = current_user.id
+    session.add(vehicle)
     session.commit()
-    session.refresh(db_vehicle)
-    return db_vehicle
-
-
-@app.get("/vehicles/", response_model=List[VehicleRead])
-def list_vehicles(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    return session.exec(select(Vehicle).where(Vehicle.user_id == current_user.id)).all()
+    session.refresh(vehicle)
+    return vehicle
 
 
 # -------------------------------
-# Fuel Entries
+# ⛽ Fuel Entries
 # -------------------------------
-@app.post("/fuel/", response_model=FuelEntryRead)
-def create_fuel_entry(fuel: FuelEntryCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    # sprawdzamy, czy pojazd należy do usera
+@app.post("/fuel/", response_model=FuelEntry)
+def create_fuel_entry(
+    fuel: FuelEntry,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    # sprawdzenie, czy pojazd należy do użytkownika
     vehicle = session.get(Vehicle, fuel.vehicle_id)
     if not vehicle or vehicle.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Vehicle not found or not owned by you")
+        raise HTTPException(status_code=403, detail="Nie masz dostępu do tego pojazdu")
 
-    db_fuel = FuelEntry.from_orm(fuel)
-    session.add(db_fuel)
+    session.add(fuel)
     session.commit()
-    session.refresh(db_fuel)
-    return db_fuel
-
-
-@app.get("/fuel/", response_model=List[FuelEntryRead])
-def list_fuel_entries(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    vehicles = session.exec(select(Vehicle.id).where(Vehicle.user_id == current_user.id)).all()
-    return session.exec(select(FuelEntry).where(FuelEntry.vehicle_id.in_(vehicles))).all()
+    session.refresh(fuel)
+    return fuel
 
 
 # -------------------------------
-# Service Events
+# 🧾 Service Events
 # -------------------------------
-@app.post("/service/", response_model=ServiceEventRead)
-def create_service_event(event: ServiceEventCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+@app.post("/service/", response_model=ServiceEvent)
+def create_service_event(
+    event: ServiceEvent,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     vehicle = session.get(Vehicle, event.vehicle_id)
     if not vehicle or vehicle.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Vehicle not found or not owned by you")
+        raise HTTPException(status_code=403, detail="Nie masz dostępu do tego pojazdu")
 
-    db_event = ServiceEvent.from_orm(event)
-    session.add(db_event)
+    session.add(event)
     session.commit()
-    session.refresh(db_event)
-    return db_event
+    session.refresh(event)
+    return event
 
 
-@app.get("/service/", response_model=List[ServiceEventRead])
-def list_service_events(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    vehicles = session.exec(select(Vehicle.id).where(Vehicle.user_id == current_user.id)).all()
-    return session.exec(select(ServiceEvent).where(ServiceEvent.vehicle_id.in_(vehicles))).all()
+# -------------------------------
+# 📊 Spalanie
+# -------------------------------
+@app.get("/vehicles/{vehicle_id}/consumption")
+def get_consumption(
+    vehicle_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    vehicle = session.get(Vehicle, vehicle_id)
+    if not vehicle or vehicle.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Brak dostępu do pojazdu")
+
+    fuel_entries = session.exec(
+        select(FuelEntry).where(FuelEntry.vehicle_id == vehicle_id).order_by(FuelEntry.odometer)
+    ).all()
+
+    if len(fuel_entries) < 2:
+        raise HTTPException(status_code=400, detail="Za mało danych do obliczenia spalania")
+
+    distance = fuel_entries[-1].odometer - fuel_entries[0].odometer
+    liters_used = sum(entry.liters for entry in fuel_entries)
+    avg_consumption = (liters_used / distance) * 100  # l/100km
+
+    return {
+        "vehicle_id": vehicle_id,
+        "distance": distance,
+        "liters": liters_used,
+        "avg_consumption": round(avg_consumption, 2),
+    }

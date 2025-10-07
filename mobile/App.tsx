@@ -19,21 +19,32 @@ export default function App() {
     loadToken();
   }, []);
 
+  const handleLogout = async () => {
+    await Storage.removeItem("token");
+    setToken(null);
+  };
+
   if (loading) return <ActivityIndicator size="large" style={{ flex: 1 }} />;
 
   if (!token) {
     return showRegister ? (
       <View style={{ flex: 1 }}>
         <RegisterScreen onRegister={() => setShowRegister(false)} />
-        <Button title="Masz już konto? Zaloguj się" onPress={() => setShowRegister(false)} />
+        <Button
+          title="Masz już konto? Zaloguj się"
+          onPress={() => setShowRegister(false)}
+        />
       </View>
     ) : (
       <View style={{ flex: 1 }}>
         <LoginScreen onLogin={(t) => setToken(t)} />
-        <Button title="Nie masz konta? Zarejestruj się" onPress={() => setShowRegister(true)} />
+        <Button
+          title="Nie masz konta? Zarejestruj się"
+          onPress={() => setShowRegister(true)}
+        />
       </View>
     );
   }
 
-  return <VehiclesScreen />;
+  return <VehiclesScreen token={token} onLogout={handleLogout} />;
 }

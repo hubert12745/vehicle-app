@@ -1,7 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// helper sprawdzający czy SecureStore jest wspierane
 async function isSecureStoreAvailable() {
   try {
     await SecureStore.getItemAsync("test_key");

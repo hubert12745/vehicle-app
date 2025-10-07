@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet } from "react-native";
+import { View, Text, FlatList, StyleSheet, Button } from "react-native";
 import api from "../api";
+import AddVehicleScreen from "./AddVehicle";
 
 interface Vehicle {
   id: number;
@@ -9,34 +10,58 @@ interface Vehicle {
   registration?: string;
 }
 
-export default function VehiclesScreen() {
+export default function VehiclesScreen({
+  token,
+  onLogout,
+}: {
+  token: string;
+  onLogout: () => void;
+}) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [consumption, setConsumption] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false); // ✅ brakujący state
+
+  const loadVehicles = async () => {
+    try {
+      const res = await api.get<Vehicle[]>("/vehicles/");
+      console.log("📦 Vehicles:", res.data);
+      setVehicles(res.data);
+
+      if (res.data.length > 0) {
+        const firstId = res.data[0].id;
+        const cons = await api.get(`/vehicles/${firstId}/consumption`);
+        setConsumption(cons.data.avg_consumption + " l/100km");
+      }
+      setError(null);
+    } catch (err: any) {
+      console.error("❌ API error:", err.response?.data || err.message);
+      setError("Nie udało się pobrać danych. Sprawdź połączenie lub token.");
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // pobierz wszystkie pojazdy
-        const res = await api.get<Vehicle[]>("/vehicles/");
-        setVehicles(res.data);
+    loadVehicles();
+  }, [token]);
 
-        // policz spalanie pierwszego pojazdu
-        if (res.data.length > 0) {
-          const firstId = res.data[0].id;
-          const cons = await api.get(`/vehicles/${firstId}/consumption`);
-          setConsumption(cons.data.avg_consumption + " l/100km");
-        }
-      } catch (err) {
-        console.error("API error", err);
-      }
-    };
+  // 🔄 widok formularza dodawania pojazdu
+  if (showAdd) {
+    return (
+      <AddVehicleScreen
+        onVehicleAdded={() => {
+          setShowAdd(false);
+          loadVehicles();
+        }}
+      />
+    );
+  }
 
-    fetchData();
-  }, []);
-
+  // 🔄 widok listy pojazdów
   return (
     <View style={styles.container}>
       <Text style={styles.title}>🚗 Moje pojazdy</Text>
+
+      {error && <Text style={styles.error}>{error}</Text>}
 
       <FlatList
         data={vehicles}
@@ -48,9 +73,17 @@ export default function VehiclesScreen() {
         )}
       />
 
-      {consumption && (
+      {consumption ? (
         <Text style={styles.consumption}>Średnie spalanie: {consumption}</Text>
-      )}
+      ) : null}
+
+      <View style={{ marginTop: 25 }}>
+        <Button title="➕ Dodaj pojazd" onPress={() => setShowAdd(true)} />
+        <View style={{ height: 10 }} />
+        <Button title="🔄 Odśwież" onPress={loadVehicles} />
+        <View style={{ height: 10 }} />
+        <Button title="🔒 Wyloguj się" onPress={onLogout} color="red" />
+      </View>
     </View>
   );
 }
@@ -60,4 +93,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: "bold", marginBottom: 15 },
   item: { fontSize: 18, marginBottom: 10 },
   consumption: { marginTop: 20, fontSize: 18, color: "green" },
+  error: { color: "red", marginBottom: 10 },
 });
