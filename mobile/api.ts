@@ -11,6 +11,7 @@ api.interceptors.request.use(async (config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  console.log("Token being sent:", token);
   return config;
 });
 
