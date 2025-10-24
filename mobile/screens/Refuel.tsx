@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, Button, StyleSheet, Alert } from "react-native";
+import { View, Text, TextInput, Button, StyleSheet, Alert, Platform } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import api from "../api";
 
 interface RefuelScreenProps {
@@ -12,6 +13,8 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
   const [liters, setLiters] = useState("");
   const [pricePerLiter, setPricePerLiter] = useState("");
   const [totalCost, setTotalCost] = useState("");
+  const [date, setDate] = useState(new Date()); // Refueling date
+  const [showDatePicker, setShowDatePicker] = useState(false); // Control date picker visibility
   const [loading, setLoading] = useState(false);
 
   // Auto-calculate total cost when liters or price per liter changes
@@ -38,6 +41,7 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
         liters: parseFloat(liters),
         price_per_liter: parseFloat(pricePerLiter),
         total_cost: parseFloat(totalCost),
+        date: date.toISOString(), // Include the selected date
       });
 
       Alert.alert("Sukces", "Dane tankowania zostały dodane!");
@@ -45,12 +49,20 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
       setLiters("");
       setPricePerLiter("");
       setTotalCost("");
+      setDate(new Date()); // Reset the date picker
       onRefuelAdded(); // Notify parent to refresh data or navigate back
     } catch (err: any) {
       console.error("❌ Błąd dodawania tankowania:", err.response?.data || err.message);
       Alert.alert("Błąd", "Nie udało się dodać danych tankowania. Sprawdź połączenie lub token.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(false); // Hide the date picker
+    if (selectedDate) {
+      setDate(selectedDate); // Update the selected date
     }
   };
 
@@ -90,6 +102,18 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
         editable={false} // Make this field read-only since it's auto-calculated
       />
 
+      <Text style={styles.label}>Data tankowania:</Text>
+      <Button title={date.toDateString()} onPress={() => setShowDatePicker(true)} />
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={date}
+          mode="date"
+          display={Platform.OS === "ios" ? "inline" : "default"}
+          onChange={handleDateChange}
+        />
+      )}
+
       <Button
         title={loading ? "Dodawanie..." : "Dodaj tankowanie"}
         onPress={handleAddRefuel}
@@ -106,6 +130,7 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, justifyContent: "center" },
   title: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 20 },
+  label: { fontSize: 16, marginBottom: 10 },
   input: {
     borderWidth: 1,
     borderColor: "#ccc",

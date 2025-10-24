@@ -155,3 +155,39 @@ def get_consumption(
         "liters": liters_used,
         "avg_consumption": round(avg_consumption, 2),
     }
+
+@app.get("/fuel/vehicle/{vehicle_id}", response_model=List[FuelEntry])
+def list_fuel_entries(
+    vehicle_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    # Check if the vehicle belongs to the current user
+    vehicle = session.get(Vehicle, vehicle_id)
+    if not vehicle or vehicle.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Brak dostępu do pojazdu")
+
+    # Fetch all fuel entries for the vehicle
+    fuel_entries = session.exec(
+        select(FuelEntry).where(FuelEntry.vehicle_id == vehicle_id).order_by(FuelEntry.date.desc())
+    ).all()
+
+    return fuel_entries
+
+@app.get("/service/vehicle/{vehicle_id}", response_model=List[ServiceEvent])
+def list_service_events(
+    vehicle_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    # Check if the vehicle belongs to the current user
+    vehicle = session.get(Vehicle, vehicle_id)
+    if not vehicle or vehicle.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Brak dostępu do pojazdu")
+
+    # Fetch all service events for the vehicle
+    service_events = session.exec(
+        select(ServiceEvent).where(ServiceEvent.vehicle_id == vehicle_id).order_by(ServiceEvent.date.desc())
+    ).all()
+
+    return service_events
