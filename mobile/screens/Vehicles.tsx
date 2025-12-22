@@ -32,6 +32,14 @@ export default function VehiclesScreen({
   const [showAddService, setShowAddService] = useState(false);
   const [showServiceEntries, setShowServiceEntries] = useState(false);
 
+  // selected fuel entry for edit (passed to RefuelScreen)
+  const [selectedFuelToEdit, setSelectedFuelToEdit] = useState<any | null>(null);
+  const [openedFromEntries, setOpenedFromEntries] = useState(false);
+
+  // selected service entry for edit
+  const [selectedServiceToEdit, setSelectedServiceToEdit] = useState<any | null>(null);
+  const [openedFromServiceEntries, setOpenedFromServiceEntries] = useState(false);
+
   const loadVehicles = async () => {
     try {
       const res = await api.get<Vehicle[]>("/vehicles/");
@@ -70,6 +78,8 @@ export default function VehiclesScreen({
                 title="➕ Dodaj tankowanie"
                 onPress={() => {
                   setSelectedVehicleId(item.id);
+                  setSelectedFuelToEdit(null);
+                  setOpenedFromEntries(false);
                   setShowRefuel(true);
                 }}
               />
@@ -84,6 +94,8 @@ export default function VehiclesScreen({
                 title="➕ Dodaj serwis"
                 onPress={() => {
                   setSelectedVehicleId(item.id);
+                  setSelectedServiceToEdit(null);
+                  setOpenedFromServiceEntries(false);
                   setShowAddService(true);
                 }}
               />
@@ -113,9 +125,17 @@ export default function VehiclesScreen({
       {showRefuel && selectedVehicleId && (
         <RefuelScreen
           vehicleId={selectedVehicleId}
+          existingEntry={selectedFuelToEdit}
           onRefuelAdded={() => {
             setShowRefuel(false);
-            setSelectedVehicleId(null);
+            // if refuel was opened from entries, return to entries view
+            if (openedFromEntries) {
+              setShowFuelEntries(true);
+              setOpenedFromEntries(false);
+            } else {
+              setSelectedVehicleId(null);
+            }
+            setSelectedFuelToEdit(null);
             loadVehicles();
           }}
         />
@@ -128,6 +148,13 @@ export default function VehiclesScreen({
           onBack={() => {
             setShowFuelEntries(false);
             setSelectedVehicleId(null);
+            setSelectedFuelToEdit(null);
+          }}
+          onEditEntry={(entry: any) => {
+            // show Refuel screen in edit mode
+            setSelectedFuelToEdit(entry);
+            setOpenedFromEntries(true);
+            setShowRefuel(true);
           }}
         />
       )}
@@ -136,9 +163,17 @@ export default function VehiclesScreen({
       {showAddService && selectedVehicleId && (
         <AddServiceScreen
           vehicleId={selectedVehicleId}
+          existingEntry={selectedServiceToEdit}
           onServiceAdded={() => {
             setShowAddService(false);
-            setSelectedVehicleId(null);
+            // if service editor was opened from entries, return to entries view
+            if (openedFromServiceEntries) {
+              setShowServiceEntries(true);
+              setOpenedFromServiceEntries(false);
+            } else {
+              setSelectedVehicleId(null);
+            }
+            setSelectedServiceToEdit(null);
             loadVehicles();
           }}
         />
@@ -151,6 +186,11 @@ export default function VehiclesScreen({
           onBack={() => {
             setShowServiceEntries(false);
             setSelectedVehicleId(null);
+          }}
+          onEditEntry={(entry: any) => {
+            setSelectedServiceToEdit(entry);
+            setOpenedFromServiceEntries(true);
+            setShowAddService(true);
           }}
         />
       )}

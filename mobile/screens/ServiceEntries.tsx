@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, Button, ActivityIndicator } from "react-native";
-import api from "../api";
+import { View, Text, FlatList, StyleSheet, Button, ActivityIndicator, Alert } from "react-native";
+import api, { deleteService } from "../api";
 
 interface ServiceEntry {
   id: number;
@@ -13,9 +13,10 @@ interface ServiceEntry {
 interface ServiceEntriesScreenProps {
   vehicleId: number;
   onBack: () => void; // Callback to navigate back to the vehicle list
+  onEditEntry?: (entry: ServiceEntry) => void;
 }
 
-export default function ServiceEntriesScreen({ vehicleId, onBack }: ServiceEntriesScreenProps) {
+export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry }: ServiceEntriesScreenProps) {
   const [serviceEntries, setServiceEntries] = useState<ServiceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +66,32 @@ export default function ServiceEntriesScreen({ vehicleId, onBack }: ServiceEntri
               <Text>Tytuł: {item.title}</Text>
               <Text>Opis: {item.description}</Text>
               <Text>Koszt: {item.cost.toFixed(2)} PLN</Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
+                {onEditEntry && <Button title="Edytuj" onPress={() => onEditEntry(item)} />}
+                <Button
+                  title="Usuń"
+                  color="red"
+                  onPress={() => {
+                    Alert.alert(
+                      'Usuń wpis',
+                      'Czy na pewno chcesz usunąć ten wpis serwisowy?',
+                      [
+                        { text: 'Anuluj', style: 'cancel' },
+                        { text: 'Usuń', style: 'destructive', onPress: async () => {
+                            try {
+                              await deleteService(item.id);
+                              Alert.alert('Usunięto', 'Wpis został usunięty.');
+                              loadServiceEntries();
+                            } catch (e: any) {
+                              console.error('Błąd usuwania serwisu', e);
+                              Alert.alert('Błąd', e?.response?.data || e?.message || 'Nieznany błąd');
+                            }
+                        } }
+                      ]
+                    );
+                  }}
+                />
+              </View>
             </View>
           )}
         />

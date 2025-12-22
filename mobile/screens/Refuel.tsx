@@ -6,9 +6,10 @@ import api from "../api";
 interface RefuelScreenProps {
   vehicleId: number;
   onRefuelAdded: () => void; // Callback to refresh data or navigate back
+  existingEntry?: any; // optional entry for edit mode
 }
 
-export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenProps) {
+export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }: RefuelScreenProps) {
   const [odometer, setOdometer] = useState("");
   const [liters, setLiters] = useState("");
   const [pricePerLiter, setPricePerLiter] = useState("");
@@ -16,6 +17,21 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
   const [date, setDate] = useState(new Date()); // Refueling date
   const [showDatePicker, setShowDatePicker] = useState(false); // Control date picker visibility
   const [loading, setLoading] = useState(false);
+
+  // If editing, prefill fields
+  useEffect(() => {
+    if (existingEntry) {
+      setOdometer(String(existingEntry.odometer ?? ""));
+      setLiters(String(existingEntry.liters ?? ""));
+      setPricePerLiter(String(existingEntry.price_per_liter ?? ""));
+      setTotalCost(String(existingEntry.total_cost ?? ""));
+      try {
+        setDate(existingEntry.date ? new Date(existingEntry.date) : new Date());
+      } catch (e) {
+        setDate(new Date());
+      }
+    }
+  }, [existingEntry]);
 
   // Auto-calculate total cost when liters or price per liter changes
   useEffect(() => {
@@ -27,33 +43,111 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
     }
   }, [liters, pricePerLiter]);
 
-  const handleAddRefuel = async () => {
+  const handleSave = async () => {
     if (!odometer || !liters || !pricePerLiter || !totalCost) {
       Alert.alert("Błąd", "Wypełnij wszystkie pola.");
       return;
     }
 
     setLoading(true);
-    try {
-      await api.post("/fuel/", {
-        vehicle_id: vehicleId,
-        odometer: parseInt(odometer),
-        liters: parseFloat(liters),
-        price_per_liter: parseFloat(pricePerLiter),
-        total_cost: parseFloat(totalCost),
-        date: date.toISOString(), // Include the selected date
-      });
 
-      Alert.alert("Sukces", "Dane tankowania zostały dodane!");
-      setOdometer("");
-      setLiters("");
-      setPricePerLiter("");
-      setTotalCost("");
-      setDate(new Date()); // Reset the date picker
-      onRefuelAdded(); // Notify parent to refresh data or navigate back
-    } catch (err: any) {
-      console.error("❌ Błąd dodawania tankowania:", err.response?.data || err.message);
-      Alert.alert("Błąd", "Nie udało się dodać danych tankowania. Sprawdź połączenie lub token.");
+    // helper to wait
+    const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+    // prepare payload
+    const payload = {
+      vehicle_id: vehicleId,
+      odometer: parseInt(odometer),
+      liters: parseFloat(liters),
+      price_per_liter: parseFloat(pricePerLiter),
+      total_cost: parseFloat(totalCost),
+      date: date.toISOString(),
+    };
+
+    const maxAttempts = 3;
+    let attempt = 0;
+    let lastError: any = null;
+
+    try {
+      while (attempt < maxAttempts) {
+        try {
+          if (existingEntry) {
+            res = await api.put(`/fuel/${existingEntry.id}`, payload);
+          } else {
+            res = await api.post("/fuel/", payload);
+          }
+
+          // success handling
+          if (res && res.status === 202) {
+            // queued: poll /debug/queue until pending is 0 or timeout
+            Alert.alert('Zapis w tle', 'Twoje dane zostały umieszczone w kolejce do zapisu. Aplikacja odświeży listę gdy zapis się ukończy.');
+            const start = Date.now();
+            const maxWait = 15000; // 15s
+            while (Date.now() - start < maxWait) {
+              try {
+                const q = await api.get('/debug/queue');
+                if (q.data && q.data.pending_background_tasks === 0) {
+                  break;
+                }
+              } catch (e) {
+                // ignore polling errors
+              }
+              await wait(500);
+            }
+            // After waiting (or timeout) notify parent to refresh
+            onRefuelAdded();
+            return;
+          }
+
+          // normal success (200)
+          Alert.alert("Sukces", existingEntry ? "Dane tankowania zostały zaktualizowane!" : "Dane tankowania zostały dodane!");
+          // Reset fields and callback
+          setOdometer("");
+          setLiters("");
+          setPricePerLiter("");
+          setTotalCost("");
+          setDate(new Date());
+          onRefuelAdded(); // Notify parent to refresh data or navigate back
+          return;
+        } catch (err: any) {
+          lastError = err;
+          const status = err?.response?.status;
+          const msg = (err && (err.message || '')).toString().toLowerCase();
+
+          // if 503 Service Unavailable or network error -> retry
+          const shouldRetry = (status === 503) || msg.includes('network') || msg.includes('timeout');
+
+          attempt++;
+          if (shouldRetry && attempt < maxAttempts) {
+            const backoff = 500 * Math.pow(2, attempt - 1); // 500ms, 1000ms, ...
+            console.warn(`Attempt ${attempt} failed (${status || msg}). Retrying in ${backoff}ms...`);
+            await wait(backoff);
+            continue;
+          }
+
+          // Otherwise break and handle error below
+          break;
+        }
+      }
+
+      // If we reach here, all attempts failed
+      const err = lastError;
+      const serverDetail = err?.response?.data || err?.response?.data?.detail || err?.message;
+      console.error("❌ Błąd zapisu tankowania (after retries):", serverDetail || err);
+
+      // Network error -> helpful hint
+      const msgLower = (err && (err.message || '')).toString().toLowerCase();
+      if (msgLower.includes('network')) {
+        try { console.error('Axios baseURL:', api.defaults?.baseURL); } catch (_) {}
+        Alert.alert(
+          'Błąd sieci',
+          'Nie udało się połączyć z serwerem po kilku próbach. Sprawdź, czy backend działa i czy urządzenie jest w tej samej sieci co komputer. Możesz ustawić EXPO_API_URL, np. global.EXPO_API_URL = "http://192.168.x.y:8000" w App.tsx.'
+        );
+      } else if (err?.response?.status === 503) {
+        Alert.alert('Serwer zajęty', 'Serwer był zajęty przy zapisie. Spróbuj ponownie za kilka sekund.');
+      } else {
+        Alert.alert("Błąd zapisu tankowania", typeof serverDetail === 'string' ? serverDetail : JSON.stringify(serverDetail));
+      }
     } finally {
       setLoading(false);
     }
@@ -68,7 +162,7 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>➕ Dodaj tankowanie</Text>
+      <Text style={styles.title}>{existingEntry ? '✏️ Edytuj tankowanie' : '➕ Dodaj tankowanie'}</Text>
 
       <TextInput
         style={styles.input}
@@ -115,8 +209,8 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded }: RefuelScreenP
       )}
 
       <Button
-        title={loading ? "Dodawanie..." : "Dodaj tankowanie"}
-        onPress={handleAddRefuel}
+        title={loading ? (existingEntry ? "Zapisywanie..." : "Dodawanie...") : (existingEntry ? "Zapisz zmiany" : "Dodaj tankowanie")}
+        onPress={handleSave}
         disabled={loading}
       />
 

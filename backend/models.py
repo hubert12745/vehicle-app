@@ -94,7 +94,7 @@ class FuelEntryCreate(SQLModel):
     odometer: int
     liters: float
     price_per_liter: float
-    total_cost: float
+    total_cost: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -135,4 +135,3 @@ class UserLogin(SQLModel):
 class Token(SQLModel):
     access_token: str
     token_type: str = "bearer"
-
