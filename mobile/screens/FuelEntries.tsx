@@ -80,9 +80,13 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patc
     let kmNext: number | null = null;
     let daysNext: number | null = null;
     if (predicted && sorted.length >= 1) {
-      const last = sorted[sorted.length - 1];
-      if (last.liters && predicted > 0) {
-        kmNext = Number(((last.liters / predicted) * 100).toFixed(0));
+      // Use estimated tank capacity as the largest 'liters' value seen in entries
+      const tankCapacity = sorted.reduce((m, e) => {
+        const v = Number(e.liters) || 0;
+        return Math.max(m, v);
+      }, 0);
+      if (tankCapacity > 0 && predicted > 0) {
+        kmNext = Number(((tankCapacity / predicted) * 100).toFixed(0));
       }
 
       // estimate avg daily km using the last up to 5 entries
@@ -152,26 +156,40 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patc
   // apply patch once after load
   useEffect(() => {
     if (!loading && patch) {
+      // Merge patch deterministically and compute consumption/predictions using the merged array
       setFuelEntries((prev) => {
-        const idx = prev.findIndex((p) => p.id === patch.id);
-        if (patch._deleted) {
-          return prev.filter((p) => p.id !== patch.id);
+        const base = Array.isArray(prev) ? [...prev] : [];
+        const idx = base.findIndex((p) => p.id === patch.id);
+        let mergedArr: FuelEntry[];
+        if ((patch as any)._deleted) {
+          if (idx >= 0) {
+            base.splice(idx, 1);
+          }
+          mergedArr = base;
+        } else {
+          if (idx >= 0) {
+            base[idx] = patch as FuelEntry;
+            mergedArr = base;
+          } else {
+            mergedArr = [patch as FuelEntry, ...base];
+          }
         }
-        if (idx >= 0) {
-          const copy = [...prev];
-          copy[idx] = patch;
-          return copy;
+
+        // Recompute consumption map and predictions using the merged result
+        try {
+          const cmap = computeConsumptionMap(mergedArr);
+          // update derived state inside the same tick
+          setConsumptionMap(cmap);
+          computePredictionsAndAnomalies(mergedArr, cmap);
+        } catch (e) {
+          console.warn('[FuelEntries] error computing predictions after patch:', e);
         }
-        return [patch, ...prev];
+
+        return mergedArr;
       });
-      // recompute consumption map after merging patch
-      const merged = (fuelEntries || []).some() ? ([...(fuelEntries || []), patch]) : [patch];
-      const cmap = computeConsumptionMap(merged as FuelEntry[]);
-      setConsumptionMap(cmap);
-      computePredictionsAndAnomalies(merged as FuelEntry[], cmap);
-      if (clearPatch) clearPatch();
-    }
-  }, [patch, loading]);
+       if (clearPatch) clearPatch();
+     }
+   }, [patch, loading]);
 
   useEffect(() => {
     // recompute consumption when entries change

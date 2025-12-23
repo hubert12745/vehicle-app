@@ -95,4 +95,18 @@ export async function deleteService(id: number) {
   }
 }
 
+export async function deleteFuel(id: number) {
+  try {
+    console.log(`DELETE ${api.defaults.baseURL}/fuel/${id}`);
+    const res = await api.delete(`/fuel/${id}`);
+    return res;
+  } catch (err: any) {
+    if (err?.response) {
+      console.warn('[API] deleteFuel returned error response:', err.response.status, err.response.data);
+      return err.response;
+    }
+    throw err;
+  }
+}
+
 export default api;

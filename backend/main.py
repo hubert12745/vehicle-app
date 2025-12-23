@@ -425,11 +425,49 @@ def update_fuel_entry(
                     session.rollback()
                 except Exception:
                     pass
+                import time as _time
                 _time.sleep(0.25 * (attempt + 1))
                 continue
             import traceback
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+
+# New: DELETE fuel endpoint
+@app.delete("/fuel/{fuel_id}", status_code=204)
+def delete_fuel_entry(
+    fuel_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    print(f"[DEBUG] delete_fuel_entry called: fuel_id={fuel_id}, user_id={getattr(current_user,'id',None)}")
+
+    db_entry = session.get(FuelEntry, fuel_id)
+    if not db_entry:
+        try:
+            # list fuel ids for vehicles owned by current user
+            owned_vehicle_ids = [v.id for v in session.exec(select(Vehicle).where(Vehicle.user_id == current_user.id)).all()]
+            existing_ids = session.exec(select(FuelEntry.id).where(FuelEntry.vehicle_id.in_(owned_vehicle_ids))).all() if owned_vehicle_ids else []
+        except Exception as e:
+            existing_ids = []
+            print(f"[DEBUG] delete_fuel_entry: error while listing existing ids: {e}")
+        print(f"[DEBUG] delete_fuel_entry: fuel_id {fuel_id} not found. existing_fuel_ids_for_user={existing_ids[:50]}")
+        return JSONResponse(status_code=404, content={
+            "detail": "Wpis tankowania nie znaleziony",
+            "existing_fuel_ids_for_user": existing_ids[:200],
+        })
+
+    vehicle = session.get(Vehicle, db_entry.vehicle_id)
+    if not vehicle or vehicle.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Nie masz dostępu do tego wpisu")
+
+    try:
+        session.delete(db_entry)
+        session.commit()
+        return Response(status_code=204)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
 
 
 # -------------------------------

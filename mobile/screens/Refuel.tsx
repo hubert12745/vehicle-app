@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, Button, StyleSheet, Alert, Platform } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import api from "../api";
+import api, { deleteFuel } from "../api";
 
 interface RefuelScreenProps {
   vehicleId: number;
@@ -167,6 +167,39 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }
     }
   };
 
+  const handleDelete = async () => {
+    if (!existingEntry || !existingEntry.id) return;
+    Alert.alert(
+      'Usuń wpis',
+      'Na pewno usunąć wpis tankowania?',
+      [
+        { text: 'Anuluj', style: 'cancel' },
+        { text: 'Usuń', style: 'destructive', onPress: async () => {
+            setLoading(true);
+            try {
+              const res = await deleteFuel(existingEntry.id);
+              if (res && (res.status === 200 || res.status === 204)) {
+                Alert.alert('Usunięto', 'Wpis tankowania został usunięty.');
+                onRefuelAdded({ id: existingEntry.id, _deleted: true });
+                return;
+              } else if (res && res.status === 404) {
+                Alert.alert('Błąd', 'Wpis nie istniał. Odświeżam listę.');
+                onRefuelAdded();
+                return;
+              }
+              Alert.alert('Błąd', 'Nie udało się usunąć wpisu.');
+              onRefuelAdded();
+            } catch (e: any) {
+              console.error('Błąd usuwania tankowania', e);
+              Alert.alert('Błąd', e?.response?.data || e?.message || 'Nieznany błąd');
+            } finally {
+              setLoading(false);
+            }
+        } }
+      ]
+    );
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{existingEntry ? '✏️ Edytuj tankowanie' : '➕ Dodaj tankowanie'}</Text>
@@ -220,6 +253,12 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }
         onPress={handleSave}
         disabled={loading}
       />
+
+      {existingEntry && (
+        <View style={{ marginTop: 10 }}>
+          <Button title={loading ? "Usuwanie..." : "Usuń wpis"} color="red" onPress={handleDelete} disabled={loading} />
+        </View>
+      )}
 
       <View style={{ marginTop: 20 }}>
         <Button title="⬅️ Powrót" onPress={() => onRefuelAdded()} />
