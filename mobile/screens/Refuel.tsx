@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, Button, StyleSheet, Alert, Platform } from "react-native";
+import { View, Text, TextInput, Button, StyleSheet, Alert, Platform, TouchableOpacity } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import api, { deleteFuel } from "../api";
 
@@ -7,9 +7,10 @@ interface RefuelScreenProps {
   vehicleId: number;
   onRefuelAdded: (patch?: any) => void; // Callback to refresh data or navigate back
   existingEntry?: any; // optional entry for edit mode
+  onCancel?: () => void;
 }
 
-export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }: RefuelScreenProps) {
+export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, onCancel }: RefuelScreenProps) {
   const [odometer, setOdometer] = useState("");
   const [liters, setLiters] = useState("");
   const [pricePerLiter, setPricePerLiter] = useState("");
@@ -202,80 +203,88 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{existingEntry ? '✏️ Edytuj tankowanie' : '➕ Dodaj tankowanie'}</Text>
+      <Text style={styles.title}>{existingEntry ? 'Edytuj tankowanie' : 'Dodaj tankowanie'}</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Stan licznika (km)"
-        keyboardType="numeric"
-        value={odometer}
-        onChangeText={setOdometer}
-      />
+      <View style={styles.row}>
+        <View style={styles.col}>
+          <Text style={styles.labelSmall}>Stan licznika</Text>
+          <TextInput style={styles.input} placeholder="km" keyboardType="numeric" value={odometer} onChangeText={setOdometer} />
+        </View>
+        <View style={[styles.col, { marginLeft: 10 }]}>
+          <Text style={styles.labelSmall}>Ilość (L)</Text>
+          <TextInput style={styles.input} placeholder="litry" keyboardType="numeric" value={liters} onChangeText={setLiters} />
+        </View>
+      </View>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Ilość paliwa (litry)"
-        keyboardType="numeric"
-        value={liters}
-        onChangeText={setLiters}
-      />
+      <View style={styles.row}>
+        <View style={styles.col}>
+          <Text style={styles.labelSmall}>Cena/l (PLN)</Text>
+          <TextInput style={styles.input} placeholder="PLN" keyboardType="numeric" value={pricePerLiter} onChangeText={setPricePerLiter} />
+        </View>
+        <View style={[styles.col, { marginLeft: 10 }]}>
+          <Text style={styles.labelSmall}>Całkowity koszt</Text>
+          <TextInput style={[styles.input, { backgroundColor: '#f4f6f8' }]} placeholder="" value={totalCost} editable={false} />
+        </View>
+      </View>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Cena za litr (PLN)"
-        keyboardType="numeric"
-        value={pricePerLiter}
-        onChangeText={setPricePerLiter}
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Całkowity koszt (PLN)"
-        keyboardType="numeric"
-        value={totalCost}
-        editable={false} // Make this field read-only since it's auto-calculated
-      />
-
-      <Text style={styles.label}>Data tankowania:</Text>
-      <Button title={date.toDateString()} onPress={() => setShowDatePicker(true)} />
+      <View style={{ marginTop: 10 }}>
+        <Text style={styles.labelSmall}>Data tankowania</Text>
+        <TouchableOpacity style={styles.dateBtn} onPress={() => setShowDatePicker(true)}>
+          <Text style={styles.dateBtnText}>{date.toDateString()}</Text>
+        </TouchableOpacity>
+      </View>
 
       {showDatePicker && (
-        <DateTimePicker
-          value={date}
-          mode="date"
-          display={Platform.OS === "ios" ? "inline" : "default"}
-          onChange={handleDateChange}
-        />
+        <DateTimePicker value={date} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleDateChange} />
       )}
 
-      <Button
-        title={loading ? (existingEntry ? "Zapisywanie..." : "Dodawanie...") : (existingEntry ? "Zapisz zmiany" : "Dodaj tankowanie")}
-        onPress={handleSave}
-        disabled={loading}
-      />
+      <View style={{ marginTop: 16 }}>
+        <TouchableOpacity style={styles.primaryBtn} onPress={handleSave} disabled={loading}>
+          <Text style={styles.primaryBtnText}>{loading ? (existingEntry ? 'Zapisywanie...' : 'Dodawanie...') : (existingEntry ? 'Zapisz zmiany' : 'Dodaj tankowanie')}</Text>
+        </TouchableOpacity>
 
-      {existingEntry && (
-        <View style={{ marginTop: 10 }}>
-          <Button title={loading ? "Usuwanie..." : "Usuń wpis"} color="red" onPress={handleDelete} disabled={loading} />
-        </View>
-      )}
+        {existingEntry && (
+          <View style={{ marginTop: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
+            <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete} disabled={loading}>
+              <Text style={styles.deleteBtnText}>Usuń wpis</Text>
+            </TouchableOpacity>
 
-      <View style={{ marginTop: 20 }}>
-        <Button title="⬅️ Powrót" onPress={() => onRefuelAdded()} />
+            <TouchableOpacity style={styles.ghostBtn} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onRefuelAdded(); } catch (e) {} } else onRefuelAdded(); }}>
+              <Text style={styles.ghostBtnText}>Anuluj</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {!existingEntry && (
+          <View style={{ marginTop: 12 }}>
+            <TouchableOpacity style={styles.ghostBtn} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onRefuelAdded(); } catch (e) {} } else onRefuelAdded(); }}>
+              <Text style={styles.ghostBtnText}>Wróć</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 20 },
-  label: { fontSize: 16, marginBottom: 10 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
-  },
+  container: { flex: 1, padding: 16, backgroundColor: '#f6f8fb' },
+  title: { fontSize: 20, fontWeight: '700', color: '#2c3e50', textAlign: 'center', marginBottom: 12 },
+
+  row: { flexDirection: 'row', marginTop: 6 },
+  col: { flex: 1 },
+  labelSmall: { color: '#7f8c8d', marginBottom: 6 },
+  input: { borderWidth: 1, borderColor: '#e3e6ea', borderRadius: 8, padding: 10, backgroundColor: '#fff' },
+
+  dateBtn: { padding: 10, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e3e6ea' },
+  dateBtnText: { color: '#34495e', fontWeight: '600' },
+
+  primaryBtn: { marginTop: 8, backgroundColor: '#2e86de', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  primaryBtnText: { color: '#fff', fontWeight: '700' },
+
+  deleteBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e74c3c', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
+  deleteBtnText: { color: '#e74c3c', fontWeight: '700' },
+
+  ghostBtn: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, marginLeft: 12, borderWidth: 1, borderColor: '#e3e6ea' },
+  ghostBtnText: { color: '#34495e', fontWeight: '700' },
 });

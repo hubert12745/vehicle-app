@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, Button, ActivityIndicator, ScrollView } from "react-native";
+import { View, Text, FlatList, StyleSheet, Button, ActivityIndicator, ScrollView, TouchableOpacity } from "react-native";
 import api from "../api";
 
 interface FuelEntry {
@@ -209,38 +209,33 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patc
     <View style={styles.container}>
       <Text style={styles.title}>⛽ Historia tankowań</Text>
 
-      {loading && <ActivityIndicator size="large" color="#0000ff" />}
+      {loading && <ActivityIndicator size="large" color="#2e86de" />}
       {error && <Text style={styles.error}>{error}</Text>}
 
       {/* Prediction and anomaly summary */}
       {!loading && !error && (
         <View style={{ marginBottom: 12 }}>
           {predictedConsumption != null && (
-            <View style={{ padding: 8, backgroundColor: '#eef6ff', borderRadius: 8, marginBottom: 8 }}>
-              <Text style={{ fontWeight: '600' }}>Przewidywane spalanie przy następnym tankowaniu: {predictedConsumption} L/100km</Text>
-              {kmUntilRefuel != null && <Text>Szacowany zasięg (na zatankowane litry): ~{kmUntilRefuel} km</Text>}
-              {daysUntilRefuel != null && <Text>Szacunkowo za: ~{daysUntilRefuel} dni</Text>}
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Przewidywane spalanie: {predictedConsumption} L/100km</Text>
+              {kmUntilRefuel != null && <Text style={styles.summaryText}>Szacowany zasięg: ~{kmUntilRefuel} km</Text>}
+              {daysUntilRefuel != null && <Text style={styles.summaryText}>~{daysUntilRefuel} dni</Text>}
             </View>
           )}
 
           {anomalies.length > 0 && (
-            <View style={{ padding: 10, borderRadius: 8, backgroundColor: anomalies.some(a => a.severity === 'severe') ? '#f8d7da' : '#fff3cd' }}>
-              <Text style={{ fontWeight: '700', color: anomalies.some(a => a.severity === 'severe') ? '#721c24' : '#856404' }}>Wykryto anomalie w spalaniu ({anomalies.length})</Text>
+            <View style={[styles.summaryCard, anomalies.some(a => a.severity === 'severe') ? { backgroundColor: '#fdecea' } : {}]}>
+              <Text style={[styles.summaryTitle, anomalies.some(a => a.severity === 'severe') ? { color: '#7a1f1f' } : {}]}>Wykryto anomalie ({anomalies.length})</Text>
               {anomalies.slice(0,3).map(a => (
-                <Text key={a.id} style={{ color: anomalies.some(x => x.id === a.id && x.severity === 'severe') ? '#721c24' : '#856404' }}>
-                  • Wpis id={a.id}: {a.value} L/100km (śr. {a.baseline} L/100km, różnica {a.percentDiff}%)
-                </Text>
+                <Text key={a.id} style={[styles.summaryText, a.severity === 'severe' ? { color: '#7a1f1' } : {}]}>• Wpis #{a.id}: {a.value} L/100km</Text>
               ))}
-              {anomalies.length > 3 && <Text>...więcej</Text>}
             </View>
           )}
         </View>
       )}
 
       {!loading && !error && fuelEntries.length === 0 && (
-        <Text style={{ textAlign: "center", marginTop: 20 }}>
-          Brak danych tankowań dla tego pojazdu.
-        </Text>
+        <Text style={{ textAlign: "center", marginTop: 20 }}>Brak danych tankowań dla tego pojazdu.</Text>
       )}
 
       {!loading && !error && (
@@ -251,30 +246,25 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patc
             const consumption = consumptionMap[item.id];
             const isAnom = anomalies.some(a => a.id === item.id);
             return (
-              <View style={[styles.entry, isAnom ? { borderColor: '#8e44ad', borderWidth: 2 } : {}]}>
+              <View style={[styles.card, isAnom ? { borderColor: '#8e44ad', borderWidth: 2 } : {}]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View>
-                    <Text>Data: {new Date(item.date).toLocaleDateString()}</Text>
-                    <Text>Stan licznika: {item.odometer} km</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardTitle}>{new Date(item.date).toLocaleDateString()}</Text>
+                    <Text style={styles.cardSubtitle}>Stan licznika: {item.odometer} km</Text>
+                    <Text style={styles.smallText}>Ilość: {item.liters} L • Cena/l: {item.price_per_liter.toFixed(2)} PLN</Text>
                   </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <View style={{ backgroundColor: consumptionColor(consumption, isAnom), padding: 6, borderRadius: 6 }}>
-                      <Text style={{ color: '#fff', fontWeight: '700' }}>{consumption != null ? `${consumption} L/100km` : '—'}</Text>
-                    </View>
-                    <View style={{ height: 8 }} />
-                    {onEditEntry && <Button title="Edytuj" onPress={() => onEditEntry(item)} />}
-                  </View>
-                </View>
 
-                <View style={{ marginTop: 10 }}>
-                  <Text>Ilość paliwa: {item.liters} L</Text>
-                  <Text>Cena za litr: {item.price_per_liter.toFixed(2)} PLN</Text>
-                  <Text>Całkowity koszt: {item.total_cost.toFixed(2)} PLN</Text>
-                  {isAnom && (
-                    <Text style={{ color: '#8e44ad', marginTop: 6 }}>
-                      ⚠️ Wykryto nietypowe spalanie dla tego wpisu — sprawdź auto lub dane
-                    </Text>
-                  )}
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <View style={[styles.pill, { backgroundColor: consumptionColor(consumption, isAnom) }]}>
+                      <Text style={styles.pillText}>{consumption != null ? `${consumption} L/100km` : '—'}</Text>
+                    </View>
+
+                    <View style={{ height: 10 }} />
+
+                    <TouchableOpacity style={styles.editBtn} onPress={() => onEditEntry && onEditEntry(item)}>
+                      <Text style={styles.editBtnText}>Edytuj</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             );
@@ -283,21 +273,34 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patc
       )}
 
       <View style={{ marginTop: 20 }}>
-        <Button title="⬅️ Powrót" onPress={onBack} />
+        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+          <Text style={styles.backBtnText}>⬅️ Powrót</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
-  title: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 20 },
-  entry: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
-  },
-  error: { color: "red", textAlign: "center", marginBottom: 10 },
+  container: { flex: 1, padding: 16, backgroundColor: '#f6f8fb' },
+  title: { fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 12, color: '#2c3e50' },
+  error: { color: 'red', textAlign: 'center', marginBottom: 10 },
+
+  summaryCard: { padding: 12, backgroundColor: '#eef6ff', borderRadius: 10, marginBottom: 10 },
+  summaryTitle: { fontWeight: '700', color: '#2c3e50' },
+  summaryText: { color: '#2c3e50', marginTop: 4 },
+
+  card: { backgroundColor: '#fff', padding: 12, borderRadius: 10, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6 },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: '#34495e' },
+  cardSubtitle: { color: '#7f8c8d', marginTop: 4 },
+  smallText: { color: '#95a5a6', marginTop: 8 },
+
+  pill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16 },
+  pillText: { color: '#fff', fontWeight: '700' },
+
+  editBtn: { marginTop: 6, backgroundColor: '#2e86de', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8 },
+  editBtnText: { color: '#fff', fontWeight: '700' },
+
+  backBtn: { backgroundColor: '#fff', padding: 12, borderRadius: 10, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6 },
+  backBtnText: { fontWeight: '700', color: '#34495e' },
 });

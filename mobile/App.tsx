@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, ActivityIndicator, Button } from "react-native";
+import { View, ActivityIndicator, Button, BackHandler, Platform } from "react-native";
 import Storage from "./storage";
 import LoginScreen from "./screens/Login";
 import RegisterScreen from "./screens/Register";
@@ -37,6 +37,30 @@ export default function App() {
     await Storage.removeItem("token");
     setToken(null);
   };
+
+  useEffect(() => {
+    const onHardwareBack = () => {
+      // If on register screen and not logged in, go back to login instead of exiting
+      if (!token && showRegister) {
+        setShowRegister(false);
+        return true; // handled
+      }
+      // otherwise, allow default behavior (exit app or handled by inner screens)
+      return false;
+    };
+
+    if (Platform.OS === 'android') {
+      const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => {
+        try {
+          sub.remove();
+        } catch (e) {
+          try { BackHandler.removeEventListener && BackHandler.removeEventListener('hardwareBackPress', onHardwareBack); } catch (_) {}
+        }
+      };
+    }
+    return;
+  }, [token, showRegister]);
 
   if (loading) return <ActivityIndicator size="large" style={{ flex: 1 }} />;
 

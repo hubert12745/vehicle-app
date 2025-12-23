@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, Button } from "react-native";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, BackHandler, Platform } from "react-native";
 import api from "../api";
 import AddVehicleScreen from "./AddVehicle";
 import RefuelScreen from "./Refuel";
@@ -62,57 +62,119 @@ export default function VehiclesScreen({
     loadVehicles();
   }, [token]);
 
+  useEffect(() => {
+    const onHardwareBack = () => {
+      // If any editor is open, close it deterministically (mirror onCancel)
+      if (showRefuel) {
+        setShowRefuel(false);
+        if (openedFromEntries) {
+          setShowFuelEntries(true);
+          setOpenedFromEntries(false);
+        } else {
+          setSelectedVehicleId(null);
+        }
+        setSelectedFuelToEdit(null);
+        return true; // handled
+      }
+      if (showAddService) {
+        setShowAddService(false);
+        if (openedFromServiceEntries) {
+          setShowServiceEntries(true);
+          setOpenedFromServiceEntries(false);
+        } else {
+          setSelectedVehicleId(null);
+        }
+        setSelectedServiceToEdit(null);
+        return true;
+      }
+      if (showFuelEntries) {
+        setShowFuelEntries(false);
+        setSelectedVehicleId(null);
+        setSelectedFuelToEdit(null);
+        return true;
+      }
+      if (showServiceEntries) {
+        setShowServiceEntries(false);
+        setSelectedVehicleId(null);
+        return true;
+      }
+      if (showAddVehicle) {
+        setShowAddVehicle(false);
+        return true;
+      }
+      // nothing to handle here -> allow default behaviour (exit app)
+      return false;
+    };
+
+    if (Platform.OS === 'android') {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => {
+        // modern API: subscription.remove()
+        try {
+          subscription.remove();
+        } catch (e) {
+          // fallback (older RN) – attempt to removeEventListener
+          try { BackHandler.removeEventListener && BackHandler.removeEventListener('hardwareBackPress', onHardwareBack); } catch (_) {}
+        }
+      };
+    }
+    return;
+  }, [showRefuel, showAddService, showFuelEntries, showServiceEntries, showAddVehicle, openedFromEntries, openedFromServiceEntries, selectedFuelToEdit, selectedServiceToEdit]);
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>🚗 Moje pojazdy</Text>
+      <Text style={styles.title}>Moje pojazdy</Text>
 
       {error && <Text style={styles.error}>{error}</Text>}
 
-      {/* Main Vehicle List */}
+      {/* Modern card list */}
       {!showAddVehicle && !showRefuel && !showFuelEntries && !showAddService && !showServiceEntries && (
         <FlatList
           data={vehicles}
           keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={{ paddingBottom: 120 }}
           renderItem={({ item }) => (
-            <View style={styles.vehicleItem}>
-              <Text style={styles.item}>
-                {item.make} {item.model} ({item.registration || "brak rejestracji"})
-              </Text>
-              <Button
-                title="➕ Dodaj tankowanie"
-                onPress={() => {
-                  setSelectedVehicleId(item.id);
-                  setSelectedFuelToEdit(null);
-                  setOpenedFromEntries(false);
-                  setShowRefuel(true);
-                }}
-              />
-              <Button
-                title="📜 Historia tankowań"
-                onPress={() => {
-                  setSelectedVehicleId(item.id);
-                  setShowFuelEntries(true);
-                }}
-              />
-              <Button
-                title="➕ Dodaj serwis"
-                onPress={() => {
-                  setSelectedVehicleId(item.id);
-                  setSelectedServiceToEdit(null);
-                  setOpenedFromServiceEntries(false);
-                  setShowAddService(true);
-                }}
-              />
-              <Button
-                title="🛠️ Historia serwisów"
-                onPress={() => {
-                  setSelectedVehicleId(item.id);
-                  setShowServiceEntries(true);
-                }}
-              />
+            <View style={styles.card}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View>
+                  <Text style={styles.cardTitle}>{item.make} {item.model}</Text>
+                  <Text style={styles.cardSubtitle}>{item.registration || 'Brak rejestracji'}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <TouchableOpacity style={styles.iconButton} onPress={() => { setSelectedVehicleId(item.id); setSelectedFuelToEdit(null); setOpenedFromEntries(false); setShowRefuel(true); }}>
+                    <Text style={styles.iconButtonText}>➕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'space-between' }}>
+                <TouchableOpacity style={styles.ghostButton} onPress={() => { setSelectedVehicleId(item.id); setShowFuelEntries(true); }}>
+                  <Text style={styles.ghostButtonText}>Historia tankowań</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.ghostButton} onPress={() => { setSelectedVehicleId(item.id); setSelectedServiceToEdit(null); setOpenedFromServiceEntries(false); setShowAddService(true); }}>
+                  <Text style={styles.ghostButtonText}>Dodaj serwis</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.ghostButton} onPress={() => { setSelectedVehicleId(item.id); setShowServiceEntries(true); }}>
+                  <Text style={styles.ghostButtonText}>Historia serwisów</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         />
+      )}
+
+      {/* Floating action buttons and utility */}
+      {!showAddVehicle && !showRefuel && !showFuelEntries && !showAddService && !showServiceEntries && (
+        <View style={styles.fabContainer}>
+          <TouchableOpacity style={styles.fab} onPress={() => setShowAddVehicle(true)}>
+            <Text style={styles.fabText}>➕</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.fab, { backgroundColor: '#e74c3c', marginTop: 12 }]} onPress={onLogout}>
+            <Text style={styles.fabText}>🔒</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Add Vehicle Screen */}
@@ -144,6 +206,17 @@ export default function VehiclesScreen({
             if (patch) setFuelPatch(patch);
             loadVehicles();
           }}
+          onCancel={() => {
+            // deterministic cancel: close editor and return to previous view
+            setShowRefuel(false);
+            if (openedFromEntries) {
+              setShowFuelEntries(true);
+              setOpenedFromEntries(false);
+            } else {
+              setSelectedVehicleId(null);
+            }
+            setSelectedFuelToEdit(null);
+          }}
         />
       )}
 
@@ -160,6 +233,8 @@ export default function VehiclesScreen({
             // show Refuel screen in edit mode
             setSelectedFuelToEdit(entry);
             setOpenedFromEntries(true);
+            // hide entries before showing editor to avoid both being visible
+            setShowFuelEntries(false);
             setShowRefuel(true);
           }}
           patch={fuelPatch}
@@ -186,6 +261,16 @@ export default function VehiclesScreen({
             if (patch) setServicePatch(patch);
             loadVehicles();
           }}
+          onCancel={() => {
+            setShowAddService(false);
+            if (openedFromServiceEntries) {
+              setShowServiceEntries(true);
+              setOpenedFromServiceEntries(false);
+            } else {
+              setSelectedVehicleId(null);
+            }
+            setSelectedServiceToEdit(null);
+          }}
         />
       )}
 
@@ -200,31 +285,34 @@ export default function VehiclesScreen({
           onEditEntry={(entry: any) => {
             setSelectedServiceToEdit(entry);
             setOpenedFromServiceEntries(true);
+            // hide entries while editing
+            setShowServiceEntries(false);
             setShowAddService(true);
           }}
           patch={servicePatch}
           clearPatch={() => setServicePatch(null)}
         />
       )}
-
-      {/* Logout Button */}
-      {!showAddVehicle && !showRefuel && !showFuelEntries && !showAddService && !showServiceEntries && (
-        <View style={{ marginTop: 25 }}>
-          <Button title="➕ Dodaj pojazd" onPress={() => setShowAddVehicle(true)} />
-          <View style={{ height: 10 }} />
-          <Button title="🔄 Odśwież" onPress={loadVehicles} />
-          <View style={{ height: 10 }} />
-          <Button title="🔒 Wyloguj się" onPress={onLogout} color="red" />
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
-  title: { fontSize: 22, fontWeight: "bold", marginBottom: 15 },
-  vehicleItem: { marginBottom: 15, alignItems: "center" },
-  item: { fontSize: 18, marginBottom: 5 },
-  error: { color: "red", marginBottom: 10 },
+  container: { flex: 1, padding: 16, backgroundColor: '#f6f8fb' },
+  title: { fontSize: 24, fontWeight: '700', color: '#2c3e50', marginBottom: 12, textAlign: 'center' },
+  error: { color: 'red', marginBottom: 10, textAlign: 'center' },
+
+  card: { backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6 },
+  cardTitle: { fontSize: 18, fontWeight: '700', color: '#34495e' },
+  cardSubtitle: { fontSize: 13, color: '#7f8c8d', marginTop: 4 },
+
+  iconButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#2e86de', alignItems: 'center', justifyContent: 'center' },
+  iconButtonText: { color: '#fff', fontSize: 20, fontWeight: '700' },
+
+  ghostButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#f1f5f9' },
+  ghostButtonText: { color: '#34495e', fontWeight: '600' },
+
+  fabContainer: { position: 'absolute', right: 18, bottom: 24, alignItems: 'center' },
+  fab: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#2e86de', alignItems: 'center', justifyContent: 'center', elevation: 6 },
+  fabText: { color: '#fff', fontSize: 22, fontWeight: '700' },
 });
