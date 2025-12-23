@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, Button, ActivityIndicator, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, FlatList, ActivityIndicator, TouchableOpacity, StyleSheet } from "react-native";
 import api from "../api";
+import theme from '../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 interface FuelEntry {
   id: number;
@@ -27,7 +29,7 @@ interface Anomaly {
   severity: 'mild' | 'moderate' | 'severe';
 }
 
-export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patch = null, clearPatch }: FuelEntriesScreenProps) {
+export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, onViewEntry, patch = null, clearPatch }: FuelEntriesScreenProps & { onViewEntry?: (entry: FuelEntry) => void }) {
   const [fuelEntries, setFuelEntries] = useState<FuelEntry[]>([]);
   const [consumptionMap, setConsumptionMap] = useState<Record<number, number | null>>({});
   const [loading, setLoading] = useState(true);
@@ -206,75 +208,81 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patc
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>⛽ Historia tankowań</Text>
+    <View style={theme.page}>
+      <Text style={theme.headerTitle}>⛽ Historia tankowań</Text>
+      {loading && <ActivityIndicator size="large" color={theme.primary || '#2e86de'} />}
+      {error && <Text style={[theme.headerSubtitle, { color: 'red' }]}>{error}</Text>}
 
-      {loading && <ActivityIndicator size="large" color="#2e86de" />}
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      {/* Prediction and anomaly summary */}
-      {!loading && !error && (
-        <View style={{ marginBottom: 12 }}>
-          {predictedConsumption != null && (
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Przewidywane spalanie: {predictedConsumption} L/100km</Text>
-              {kmUntilRefuel != null && <Text style={styles.summaryText}>Szacowany zasięg: ~{kmUntilRefuel} km</Text>}
-              {daysUntilRefuel != null && <Text style={styles.summaryText}>~{daysUntilRefuel} dni</Text>}
-            </View>
-          )}
-
-          {anomalies.length > 0 && (
-            <View style={[styles.summaryCard, anomalies.some(a => a.severity === 'severe') ? { backgroundColor: '#fdecea' } : {}]}>
-              <Text style={[styles.summaryTitle, anomalies.some(a => a.severity === 'severe') ? { color: '#7a1f1f' } : {}]}>Wykryto anomalie ({anomalies.length})</Text>
-              {anomalies.slice(0,3).map(a => (
-                <Text key={a.id} style={[styles.summaryText, a.severity === 'severe' ? { color: '#7a1f1' } : {}]}>• Wpis #{a.id}: {a.value} L/100km</Text>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
-
-      {!loading && !error && fuelEntries.length === 0 && (
-        <Text style={{ textAlign: "center", marginTop: 20 }}>Brak danych tankowań dla tego pojazdu.</Text>
-      )}
-
-      {!loading && !error && (
-        <FlatList
-          data={fuelEntries}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => {
-            const consumption = consumptionMap[item.id];
-            const isAnom = anomalies.some(a => a.id === item.id);
-            return (
-              <View style={[styles.card, isAnom ? { borderColor: '#8e44ad', borderWidth: 2 } : {}]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle}>{new Date(item.date).toLocaleDateString()}</Text>
-                    <Text style={styles.cardSubtitle}>Stan licznika: {item.odometer} km</Text>
-                    <Text style={styles.smallText}>Ilość: {item.liters} L • Cena/l: {item.price_per_liter.toFixed(2)} PLN</Text>
-                  </View>
-
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <View style={[styles.pill, { backgroundColor: consumptionColor(consumption, isAnom) }]}>
-                      <Text style={styles.pillText}>{consumption != null ? `${consumption} L/100km` : '—'}</Text>
-                    </View>
-
-                    <View style={{ height: 10 }} />
-
-                    <TouchableOpacity style={styles.editBtn} onPress={() => onEditEntry && onEditEntry(item)}>
-                      <Text style={styles.editBtnText}>Edytuj</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+      <View style={{ marginTop: 8 }}>
+        {/* Prediction and anomaly summary */}
+        {!loading && !error && (
+          <View style={{ marginBottom: 12 }}>
+            {predictedConsumption != null && (
+              <View style={[theme.card, { backgroundColor: '#eef6ff', marginBottom: 8 }]}>
+                <Text style={styles.summaryTitle}>Przewidywane spalanie: {predictedConsumption} L/100km</Text>
+                {kmUntilRefuel != null && <Text style={styles.summaryText}>Szacowany zasięg: ~{kmUntilRefuel} km</Text>}
+                {daysUntilRefuel != null && <Text style={styles.summaryText}>~{daysUntilRefuel} dni</Text>}
               </View>
-            );
-          }}
-        />
-      )}
+            )}
+
+            {anomalies.length > 0 && (
+              <View style={[theme.card, anomalies.some(a => a.severity === 'severe') ? { backgroundColor: '#fdecea' } : { marginTop: 6 } ]}>
+                <Text style={[styles.summaryTitle, anomalies.some(a => a.severity === 'severe') ? { color: '#7a1f1f' } : {}]}>Wykryto anomalie ({anomalies.length})</Text>
+                {anomalies.slice(0,3).map(a => (
+                  <Text key={a.id} style={[styles.summaryText, a.severity === 'severe' ? { color: '#7a1f1f' } : {}]}>• Wpis #{a.id}: {a.value} L/100km</Text>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {!loading && !error && fuelEntries.length === 0 && (
+          <Text style={{ textAlign: "center", marginTop: 20 }}>Brak danych tankowań dla tego pojazdu.</Text>
+        )}
+
+        {!loading && !error && (
+          <FlatList
+            style={{ marginTop: 8 }}
+            data={fuelEntries}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => {
+               const consumption = consumptionMap[item.id];
+               const isAnom = anomalies.some(a => a.id === item.id);
+               return (
+                 <TouchableOpacity activeOpacity={0.9} onPress={() => onViewEntry && onViewEntry(item)}>
+                   <View style={[theme.card, styles.card, isAnom ? { borderColor: '#8e44ad', borderWidth: 2 } : {}]}>
+                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                     <View style={{ flex: 1 }}>
+                       <Text style={styles.cardTitle}>{new Date(item.date).toLocaleDateString()}</Text>
+                       <Text style={styles.cardSubtitle}>Stan licznika: {item.odometer} km</Text>
+                       <Text style={styles.smallText}>Ilość: {item.liters} L • Cena/l: {item.price_per_liter.toFixed(2)} PLN</Text>
+                     </View>
+
+                     <View style={{ alignItems: 'flex-end' }}>
+                       <View style={[styles.pill, { backgroundColor: consumptionColor(consumption, isAnom) }]}>
+                         <Text style={styles.pillText}>{consumption != null ? `${consumption} L/100km` : '—'}</Text>
+                       </View>
+
+                       <View style={{ height: 10 }} />
+
+                       <TouchableOpacity style={[theme.primaryBtn, { paddingVertical: 6, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center' }]} onPress={() => onEditEntry && onEditEntry(item)}>
+                         <Ionicons name="create-outline" size={14} color="#fff" />
+                         <Text style={[theme.primaryBtnText, { marginLeft: 8 }]}>Edytuj</Text>
+                       </TouchableOpacity>
+                     </View>
+                   </View>
+                 </View>
+                 </TouchableOpacity>
+               );
+             }}
+           />
+         )}
+      </View>
 
       <View style={{ marginTop: 20 }}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-          <Text style={styles.backBtnText}>⬅️ Powrót</Text>
+        <TouchableOpacity style={[theme.ghostBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]} onPress={onBack}>
+          <Ionicons name="arrow-back-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
+          <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>Powrót</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -282,7 +290,6 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patc
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f6f8fb' },
   title: { fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 12, color: '#2c3e50' },
   error: { color: 'red', textAlign: 'center', marginBottom: 10 },
 
@@ -290,17 +297,11 @@ const styles = StyleSheet.create({
   summaryTitle: { fontWeight: '700', color: '#2c3e50' },
   summaryText: { color: '#2c3e50', marginTop: 4 },
 
-  card: { backgroundColor: '#fff', padding: 12, borderRadius: 10, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6 },
+  card: { padding: 12, borderRadius: 10, marginBottom: 10 },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#34495e' },
   cardSubtitle: { color: '#7f8c8d', marginTop: 4 },
   smallText: { color: '#95a5a6', marginTop: 8 },
 
   pill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16 },
   pillText: { color: '#fff', fontWeight: '700' },
-
-  editBtn: { marginTop: 6, backgroundColor: '#2e86de', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8 },
-  editBtnText: { color: '#fff', fontWeight: '700' },
-
-  backBtn: { backgroundColor: '#fff', padding: 12, borderRadius: 10, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6 },
-  backBtnText: { fontWeight: '700', color: '#34495e' },
 });

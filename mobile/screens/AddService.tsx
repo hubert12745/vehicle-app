@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, Button, StyleSheet, Alert, Platform, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, StyleSheet, Alert, Platform, TouchableOpacity } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import api, { updateService, deleteService } from "../api";
+import theme from '../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 interface AddServiceScreenProps {
   vehicleId: number;
@@ -171,81 +173,73 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{existingEntry ? 'Edytuj serwis' : 'Dodaj serwis'}</Text>
+    <View style={theme.page}>
+      <View style={[theme.card, { marginTop: 20 }]}>
+        <Text style={styles.title}>{existingEntry ? 'Edytuj serwis' : 'Dodaj serwis'}</Text>
 
-      <Text style={styles.labelSmall}>Tytuł</Text>
-      <TextInput style={styles.input} placeholder="np. Wymiana oleju" value={title} onChangeText={setTitle} />
+        <Text style={styles.labelSmall}>Tytuł</Text>
+        <TextInput style={theme.input} placeholder="np. Wymiana oleju" value={title} onChangeText={setTitle} />
 
-      <Text style={styles.labelSmall}>Opis</Text>
-      <TextInput style={[styles.input, { height: 100 }]} placeholder="Opis prac" value={description} onChangeText={setDescription} multiline />
+        <Text style={styles.labelSmall}>Opis</Text>
+        <TextInput style={[theme.input, { height: 100 }]} placeholder="Opis prac" value={description} onChangeText={setDescription} multiline />
 
-      <Text style={styles.labelSmall}>Koszt (PLN)</Text>
-      <TextInput style={styles.input} placeholder="PLN" keyboardType="numeric" value={cost} onChangeText={setCost} />
+        <Text style={styles.labelSmall}>Koszt (PLN)</Text>
+        <TextInput style={theme.input} placeholder="PLN" keyboardType="numeric" value={cost} onChangeText={setCost} />
 
-      <View style={{ marginTop: 8 }}>
-        <Text style={styles.labelSmall}>Data serwisu</Text>
-        <TouchableOpacity style={styles.dateBtn} onPress={() => setShowDatePicker(true)}>
-          <Text style={styles.dateBtnText}>{date.toDateString()}</Text>
-        </TouchableOpacity>
-      </View>
-      {showDatePicker && (
-        <DateTimePicker value={date} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleDateChange} />
-      )}
-
-      <View style={{ marginTop: 8 }}>
-        <Text style={styles.labelSmall}>Następny serwis (opcjonalnie)</Text>
-        <TouchableOpacity style={styles.dateBtn} onPress={() => setShowNextDuePicker(true)}>
-          <Text style={styles.dateBtnText}>{nextDueDate ? nextDueDate.toDateString() : 'Ustaw datę'}</Text>
-        </TouchableOpacity>
-      </View>
-      {showNextDuePicker && (
-        <DateTimePicker value={nextDueDate || new Date()} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleNextDueChange} />
-      )}
-
-      <View style={{ marginTop: 12 }}>
-        <TouchableOpacity style={styles.primaryBtn} onPress={handleAddService} disabled={loading}>
-          <Text style={styles.primaryBtnText}>{loading ? (existingEntry ? 'Aktualizowanie...' : 'Dodawanie...') : (existingEntry ? 'Zapisz zmiany' : 'Dodaj serwis')}</Text>
-        </TouchableOpacity>
-
-        {existingEntry && (
-          <View style={{ marginTop: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
-            <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete} disabled={loading}>
-              <Text style={styles.deleteBtnText}>Usuń</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.ghostBtn} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onServiceAdded(); } catch (e) {} } else onServiceAdded(); }}>
-              <Text style={styles.ghostBtnText}>Anuluj</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.labelSmall}>Data serwisu</Text>
+          <TouchableOpacity style={theme.ghostBtn} onPress={() => setShowDatePicker(true)}>
+            <Text style={theme.ghostBtnText}>{date.toDateString()}</Text>
+          </TouchableOpacity>
+        </View>
+        {showDatePicker && (
+          <DateTimePicker value={date} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleDateChange} />
         )}
 
-        {!existingEntry && (
-          <View style={{ marginTop: 12 }}>
-            <TouchableOpacity style={styles.ghostBtn} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onServiceAdded(); } catch (e) {} } else onServiceAdded(); }}>
-              <Text style={styles.ghostBtnText}>Wróć</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.labelSmall}>Następny serwis (opcjonalnie)</Text>
+          <TouchableOpacity style={theme.ghostBtn} onPress={() => setShowNextDuePicker(true)}>
+            <Text style={theme.ghostBtnText}>{nextDueDate ? nextDueDate.toDateString() : 'Ustaw datę'}</Text>
+          </TouchableOpacity>
+        </View>
+        {showNextDuePicker && (
+          <DateTimePicker value={nextDueDate || new Date()} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleNextDueChange} />
         )}
+
+        <View style={{ marginTop: 12 }}>
+          <TouchableOpacity style={[theme.primaryBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]} onPress={handleAddService} disabled={loading}>
+            <Ionicons name={existingEntry ? 'save-outline' : 'add-outline'} size={18} color="#fff" />
+            <Text style={[theme.primaryBtnText, { marginLeft: 8 }]}>{loading ? (existingEntry ? 'Aktualizowanie...' : 'Dodawanie...') : (existingEntry ? 'Zapisz zmiany' : 'Dodaj serwis')}</Text>
+          </TouchableOpacity>
+
+          {existingEntry && (
+            <View style={{ marginTop: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity style={[theme.ghostBtn, { flex: 1, borderColor: '#e74c3c', borderWidth: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, justifyContent: 'center', marginRight: 8 }]} onPress={handleDelete} disabled={loading}>
+                <Ionicons name="trash-outline" size={16} color="#e74c3c" />
+                <Text style={[theme.ghostBtnText, { marginLeft: 8, color: '#e74c3c', flexShrink: 1, textAlign: 'center' }]}>Usuń</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[theme.ghostBtn, { flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, justifyContent: 'center', marginLeft: 8 }]} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onServiceAdded(); } catch (e) {} } else onServiceAdded(); }}>
+                <Ionicons name="arrow-back-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
+                <Text style={[theme.ghostBtnText, { marginLeft: 8, flexShrink: 1, textAlign: 'center' }]}>Anuluj</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {!existingEntry && (
+            <View style={{ marginTop: 12 }}>
+              <TouchableOpacity style={[theme.ghostBtn, { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, justifyContent: 'center' }]} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onServiceAdded(); } catch (e) {} } else onServiceAdded(); }}>
+                <Ionicons name="arrow-back-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
+                <Text style={[theme.ghostBtnText, { marginLeft: 8, flexShrink: 1 }]}>Wróć</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f6f8fb' },
   title: { fontSize: 20, fontWeight: '700', color: '#2c3e50', textAlign: 'center', marginBottom: 12 },
   labelSmall: { color: '#7f8c8d', marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#e3e6ea', borderRadius: 8, padding: 10, backgroundColor: '#fff' },
-
-  dateBtn: { padding: 10, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e3e6ea' },
-  dateBtnText: { color: '#34495e', fontWeight: '600' },
-
-  primaryBtn: { marginTop: 8, backgroundColor: '#2e86de', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700' },
-
-  deleteBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e74c3c', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
-  deleteBtnText: { color: '#e74c3c', fontWeight: '700' },
-
-  ghostBtn: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, marginLeft: 12, borderWidth: 1, borderColor: '#e3e6ea' },
-  ghostBtnText: { color: '#34495e', fontWeight: '700' },
 });

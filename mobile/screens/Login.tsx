@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Button, Alert, StyleSheet, Platform } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Alert } from "react-native";
 import Storage from "../storage";
 import api from "../api"; // added import
 import Constants from 'expo-constants';
+import theme, { COLORS } from '../theme';
 
 export default function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
   const [email, setEmail] = useState("");
@@ -67,36 +68,35 @@ export default function LoginScreen({ onLogin }: { onLogin: (token: string) => v
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>🔑 Logowanie</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Hasło"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
-      <Button title="Zaloguj" onPress={handleLogin} />
+    <View style={theme.page}>
+      <View style={[theme.card, { marginTop: 40 }]}>
+        <Text style={theme.headerTitle}>🔑 Zaloguj się</Text>
+        <Text style={theme.headerSubtitle}>Witaj — zarządzaj serwisami, tankowaniami i kosztami</Text>
+
+        <TextInput
+          style={theme.input}
+          placeholder="Email"
+          autoCapitalize="none"
+          keyboardType="email-address"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <TextInput
+          style={theme.input}
+          placeholder="Hasło"
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+        />
+
+        <TouchableOpacity style={theme.primaryBtn} onPress={handleLogin}>
+          <Text style={theme.primaryBtnText}>Zaloguj</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => Alert.alert('Reset hasła', 'Funkcjonalność niezaimplementowana jeszcze')}>
+          <Text style={theme.smallLink}>Nie pamiętasz hasła?</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 20 },
-  title: { fontSize: 22, marginBottom: 20, textAlign: "center", fontWeight: "bold" },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 15,
-  },
-});

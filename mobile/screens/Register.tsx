@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Button, StyleSheet, Alert } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Alert } from "react-native";
 import api from "../api";
+import theme from '../theme';
 
 export default function RegisterScreen({ onRegister }: { onRegister: () => void }) {
     const [email, setEmail] = useState("");
@@ -23,29 +24,18 @@ export default function RegisterScreen({ onRegister }: { onRegister: () => void 
 
 
     return (
-        <View style={styles.container}>
-            <Text style={styles.title}>Rejestracja</Text>
-            <TextInput
-                style={styles.input}
-                placeholder="Email"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-            />
-            <TextInput
-                style={styles.input}
-                placeholder="Hasło"
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-            />
-            <Button title="Zarejestruj" onPress={handleRegister} />
+        <View style={theme.page}>
+          <View style={[theme.card, { marginTop: 40 }]}>
+            <Text style={theme.headerTitle}>Zarejestruj się</Text>
+            <Text style={theme.headerSubtitle}>Utwórz konto, aby zacząć śledzić koszty i serwisy</Text>
+
+            <TextInput style={theme.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" />
+            <TextInput style={theme.input} placeholder="Hasło" secureTextEntry value={password} onChangeText={setPassword} />
+
+            <TouchableOpacity style={theme.primaryBtn} onPress={handleRegister}>
+              <Text style={theme.primaryBtnText}>Zarejestruj</Text>
+            </TouchableOpacity>
+          </View>
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    container: { flex: 1, justifyContent: "center", padding: 20 },
-    title: { fontSize: 22, marginBottom: 20, textAlign: "center" },
-    input: { borderWidth: 1, padding: 10, marginBottom: 15, borderRadius: 5 },
-});

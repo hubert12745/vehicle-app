@@ -1,6 +1,8 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Button, StyleSheet, Alert } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Alert } from "react-native";
 import api from "../api";
+import theme from '../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
   onVehicleAdded: () => void;
@@ -43,59 +45,25 @@ export default function AddVehicleScreen({ onVehicleAdded }: Props) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>➕ Dodaj pojazd</Text>
+    <View style={theme.page}>
+      <View style={[theme.card, { marginTop: 24 }]}>
+        <Text style={theme.headerTitle}>➕ Dodaj pojazd</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Marka (np. Toyota)"
-        value={make}
-        onChangeText={setMake}
-      />
+        <TextInput style={theme.input} placeholder="Marka (np. Toyota)" value={make} onChangeText={setMake} />
+        <TextInput style={theme.input} placeholder="Model (np. Corolla)" value={model} onChangeText={setModel} />
+        <TextInput style={theme.input} placeholder="Rok produkcji" keyboardType="numeric" value={year} onChangeText={setYear} />
+        <TextInput style={theme.input} placeholder="Numer rejestracyjny" value={registration} onChangeText={setRegistration} />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Model (np. Corolla)"
-        value={model}
-        onChangeText={setModel}
-      />
+        <TouchableOpacity style={[theme.primaryBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]} onPress={handleAddVehicle} disabled={loading}>
+          <Ionicons name="add-circle-outline" size={18} color="#fff" />
+          <Text style={[theme.primaryBtnText, { marginLeft: 8 }]}>{loading ? 'Dodawanie...' : 'Dodaj pojazd'}</Text>
+        </TouchableOpacity>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Rok produkcji"
-        keyboardType="numeric"
-        value={year}
-        onChangeText={setYear}
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Numer rejestracyjny"
-        value={registration}
-        onChangeText={setRegistration}
-      />
-
-      <Button
-        title={loading ? "Dodawanie..." : "Dodaj pojazd"}
-        onPress={handleAddVehicle}
-        disabled={loading}
-      />
-
-      <View style={{ marginTop: 20 }}>
-        <Button title="⬅️ Powrót" onPress={onVehicleAdded} />
+        <TouchableOpacity style={[theme.ghostBtn, { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]} onPress={onVehicleAdded}>
+          <Ionicons name="arrow-back-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
+          <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>Powrót</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 20 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
-  },
-});

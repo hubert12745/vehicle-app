@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, Button, StyleSheet, Alert, Platform, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, StyleSheet, Alert, Platform, TouchableOpacity, LayoutAnimation } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import api, { deleteFuel } from "../api";
+import theme from '../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 interface RefuelScreenProps {
   vehicleId: number;
@@ -97,6 +99,7 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
               await wait(500);
             }
             // After waiting (or timeout) notify parent to refresh
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             onRefuelAdded();
             return;
           }
@@ -112,9 +115,11 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
           // If server returned created/updated object, pass it as patch so UI can update immediately
           const returned = res?.data;
           if (returned) {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             onRefuelAdded(returned);
             return;
           }
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
           onRefuelAdded();
           return;
         } catch (err: any) {
@@ -181,10 +186,12 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
               const res = await deleteFuel(existingEntry.id);
               if (res && (res.status === 200 || res.status === 204)) {
                 Alert.alert('Usunięto', 'Wpis tankowania został usunięty.');
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                 onRefuelAdded({ id: existingEntry.id, _deleted: true });
                 return;
               } else if (res && res.status === 404) {
                 Alert.alert('Błąd', 'Wpis nie istniał. Odświeżam listę.');
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                 onRefuelAdded();
                 return;
               }
@@ -202,89 +209,80 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{existingEntry ? 'Edytuj tankowanie' : 'Dodaj tankowanie'}</Text>
+    <View style={theme.page}>
+      <Text style={theme.headerTitle}>{existingEntry ? 'Edytuj tankowanie' : 'Dodaj tankowanie'}</Text>
+      <View style={[theme.card, { marginTop: 8 }]}>
 
-      <View style={styles.row}>
-        <View style={styles.col}>
-          <Text style={styles.labelSmall}>Stan licznika</Text>
-          <TextInput style={styles.input} placeholder="km" keyboardType="numeric" value={odometer} onChangeText={setOdometer} />
-        </View>
-        <View style={[styles.col, { marginLeft: 10 }]}>
-          <Text style={styles.labelSmall}>Ilość (L)</Text>
-          <TextInput style={styles.input} placeholder="litry" keyboardType="numeric" value={liters} onChangeText={setLiters} />
-        </View>
-      </View>
-
-      <View style={styles.row}>
-        <View style={styles.col}>
-          <Text style={styles.labelSmall}>Cena/l (PLN)</Text>
-          <TextInput style={styles.input} placeholder="PLN" keyboardType="numeric" value={pricePerLiter} onChangeText={setPricePerLiter} />
-        </View>
-        <View style={[styles.col, { marginLeft: 10 }]}>
-          <Text style={styles.labelSmall}>Całkowity koszt</Text>
-          <TextInput style={[styles.input, { backgroundColor: '#f4f6f8' }]} placeholder="" value={totalCost} editable={false} />
-        </View>
-      </View>
-
-      <View style={{ marginTop: 10 }}>
-        <Text style={styles.labelSmall}>Data tankowania</Text>
-        <TouchableOpacity style={styles.dateBtn} onPress={() => setShowDatePicker(true)}>
-          <Text style={styles.dateBtnText}>{date.toDateString()}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {showDatePicker && (
-        <DateTimePicker value={date} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleDateChange} />
-      )}
-
-      <View style={{ marginTop: 16 }}>
-        <TouchableOpacity style={styles.primaryBtn} onPress={handleSave} disabled={loading}>
-          <Text style={styles.primaryBtnText}>{loading ? (existingEntry ? 'Zapisywanie...' : 'Dodawanie...') : (existingEntry ? 'Zapisz zmiany' : 'Dodaj tankowanie')}</Text>
-        </TouchableOpacity>
-
-        {existingEntry && (
-          <View style={{ marginTop: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
-            <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete} disabled={loading}>
-              <Text style={styles.deleteBtnText}>Usuń wpis</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.ghostBtn} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onRefuelAdded(); } catch (e) {} } else onRefuelAdded(); }}>
-              <Text style={styles.ghostBtnText}>Anuluj</Text>
-            </TouchableOpacity>
+        <View style={styles.row}>
+          <View style={styles.col}>
+            <Text style={styles.labelSmall}>Stan licznika</Text>
+            <TextInput style={theme.input} placeholder="km" keyboardType="numeric" value={odometer} onChangeText={setOdometer} />
           </View>
+          <View style={[styles.col, { marginLeft: 10 }]}>
+            <Text style={styles.labelSmall}>Ilość (L)</Text>
+            <TextInput style={theme.input} placeholder="litry" keyboardType="numeric" value={liters} onChangeText={setLiters} />
+          </View>
+        </View>
+
+        <View style={styles.row}>
+          <View style={styles.col}>
+            <Text style={styles.labelSmall}>Cena/l (PLN)</Text>
+            <TextInput style={theme.input} placeholder="PLN" keyboardType="numeric" value={pricePerLiter} onChangeText={setPricePerLiter} />
+          </View>
+          <View style={[styles.col, { marginLeft: 10 }]}>
+            <Text style={styles.labelSmall}>Całkowity koszt</Text>
+            <TextInput style={[theme.input, { backgroundColor: '#f4f6f8' }]} placeholder="" value={totalCost} editable={false} />
+          </View>
+        </View>
+
+        <View style={{ marginTop: 10 }}>
+          <Text style={styles.labelSmall}>Data tankowania</Text>
+          <TouchableOpacity style={theme.ghostBtn} onPress={() => setShowDatePicker(true)}>
+            <Text style={theme.ghostBtnText}>{date.toDateString()}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {showDatePicker && (
+          <DateTimePicker value={date} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleDateChange} />
         )}
 
-        {!existingEntry && (
-          <View style={{ marginTop: 12 }}>
-            <TouchableOpacity style={styles.ghostBtn} onPress={() => { if (onCancel) { try { onCancel(); } catch (e) {} try { onRefuelAdded(); } catch (e) {} } else onRefuelAdded(); }}>
-              <Text style={styles.ghostBtnText}>Wróć</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        <View style={{ marginTop: 16 }}>
+          <TouchableOpacity style={theme.primaryBtn} onPress={async () => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); await handleSave(); }} disabled={loading}>
+            <Text style={theme.primaryBtnText}>{loading ? (existingEntry ? 'Zapisywanie...' : 'Dodawanie...') : (existingEntry ? 'Zapisz zmiany' : 'Dodaj tankowanie')}</Text>
+          </TouchableOpacity>
+
+          {existingEntry && (
+            <View style={{ marginTop: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity style={[theme.ghostBtn, { flex: 1, borderColor: '#e74c3c', borderWidth: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, justifyContent: 'center', marginRight: 8 }]} onPress={async () => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); await handleDelete(); }} disabled={loading}>
+                <Ionicons name="trash-outline" size={16} color="#e74c3c" />
+                <Text style={[theme.ghostBtnText, { marginLeft: 8, color: '#e74c3c', flexShrink: 1, textAlign: 'center' }]}>Usuń</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[theme.ghostBtn, { flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, justifyContent: 'center', marginLeft: 8 }]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); if (onCancel) { try { onCancel(); } catch (e) {} try { onRefuelAdded(); } catch (e) {} } else onRefuelAdded(); }}>
+                <Ionicons name="arrow-back-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
+                <Text style={[theme.ghostBtnText, { marginLeft: 8, flexShrink: 1, textAlign: 'center' }]}>Anuluj</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {!existingEntry && (
+            <View style={{ marginTop: 12 }}>
+              <TouchableOpacity style={[theme.ghostBtn, { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 }]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); if (onCancel) { try { onCancel(); } catch (e) {} try { onRefuelAdded(); } catch (e) {} } else onRefuelAdded(); }}>
+                <Ionicons name="arrow-back-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
+                <Text style={[theme.ghostBtnText, { marginLeft: 8, flexShrink: 1 }]}>Wróć</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f6f8fb' },
   title: { fontSize: 20, fontWeight: '700', color: '#2c3e50', textAlign: 'center', marginBottom: 12 },
 
   row: { flexDirection: 'row', marginTop: 6 },
   col: { flex: 1 },
   labelSmall: { color: '#7f8c8d', marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#e3e6ea', borderRadius: 8, padding: 10, backgroundColor: '#fff' },
-
-  dateBtn: { padding: 10, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e3e6ea' },
-  dateBtnText: { color: '#34495e', fontWeight: '600' },
-
-  primaryBtn: { marginTop: 8, backgroundColor: '#2e86de', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700' },
-
-  deleteBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e74c3c', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
-  deleteBtnText: { color: '#e74c3c', fontWeight: '700' },
-
-  ghostBtn: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, marginLeft: 12, borderWidth: 1, borderColor: '#e3e6ea' },
-  ghostBtnText: { color: '#34495e', fontWeight: '700' },
 });
