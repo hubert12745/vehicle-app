@@ -162,6 +162,8 @@ export default function VehiclesScreen({
             setOpenedFromEntries(true);
             setShowRefuel(true);
           }}
+          patch={fuelPatch}
+          clearPatch={() => setFuelPatch(null)}
         />
       )}
 

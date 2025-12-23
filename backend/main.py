@@ -336,13 +336,19 @@ def create_fuel_entry(
     return JSONResponse(status_code=202, content={"status": "queued"})
 
 
-@app.put("/fuel/{fuel_id}", status_code=202)
+@app.put("/fuel/{fuel_id}")
 def update_fuel_entry(
     fuel_id: int,
     payload: FuelEntryCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    """Synchronously update a fuel entry and return the updated object.
+
+    This replaces the previous background-queued update to allow the frontend
+    to receive the updated entry immediately for instant UI updates.
+    """
+    # Load existing entry
     db_entry = session.get(FuelEntry, fuel_id)
     if not db_entry:
         raise HTTPException(status_code=404, detail="Wpis tankowania nie znaleziony")
@@ -367,6 +373,7 @@ def update_fuel_entry(
     except Exception:
         raise HTTPException(status_code=400, detail="Nieprawidłowe wartości liczbowe w polach odometer/liters/price_per_liter")
 
+    # parse date
     if payload.date is None:
         date_val = _datetime.utcnow()
     else:
@@ -382,17 +389,47 @@ def update_fuel_entry(
     if not total_cost:
         total_cost = round(liters * price_per_liter, 2)
 
-    bg_payload = {
-        'odometer': odometer,
-        'liters': liters,
-        'price_per_liter': price_per_liter,
-        'total_cost': total_cost,
-        'date': date_val,
-    }
+    # Apply updates
+    db_entry.odometer = odometer
+    db_entry.liters = liters
+    db_entry.price_per_liter = price_per_liter
+    db_entry.total_cost = total_cost
+    db_entry.date = date_val
+    # preserve optional notes if model supports
+    if hasattr(db_entry, 'notes') and getattr(payload, 'notes', None) is not None:
+        db_entry.notes = getattr(payload, 'notes')
 
-    _submit_bg(_bg_update_fuel, fuel_id, bg_payload, current_user.id)
-    from fastapi.responses import JSONResponse
-    return JSONResponse(status_code=202, content={"status": "queued"})
+    # commit with small retry loop to mitigate transient SQLite locks
+    import time as _time
+    for attempt in range(3):
+        try:
+            session.add(db_entry)
+            session.commit()
+            session.refresh(db_entry)
+            # return a plain dict for frontend compatibility
+            return {
+                'id': db_entry.id,
+                'vehicle_id': db_entry.vehicle_id,
+                'date': db_entry.date.isoformat() if hasattr(db_entry.date, 'isoformat') else db_entry.date,
+                'odometer': db_entry.odometer,
+                'liters': db_entry.liters,
+                'price_per_liter': db_entry.price_per_liter,
+                'total_cost': db_entry.total_cost,
+                'notes': getattr(db_entry, 'notes', None),
+            }
+        except Exception as e:
+            # If database is locked, retry after a short backoff
+            msg = str(e).lower()
+            if 'database is locked' in msg and attempt < 2:
+                try:
+                    session.rollback()
+                except Exception:
+                    pass
+                _time.sleep(0.25 * (attempt + 1))
+                continue
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
 
 
 # -------------------------------
