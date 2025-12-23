@@ -15,9 +15,11 @@ interface FuelEntriesScreenProps {
   vehicleId: number;
   onBack: () => void; // Callback to navigate back to the vehicle list
   onEditEntry?: (entry: FuelEntry) => void; // optional callback to edit an entry
+  patch?: FuelEntry | null;
+  clearPatch?: () => void;
 }
 
-export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry }: FuelEntriesScreenProps) {
+export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, patch = null, clearPatch }: FuelEntriesScreenProps) {
   const [fuelEntries, setFuelEntries] = useState<FuelEntry[]>([]);
   const [consumptionMap, setConsumptionMap] = useState<Record<number, number | null>>({});
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,32 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry }: Fu
   useEffect(() => {
     loadFuelEntries();
   }, []);
+
+  // apply patch once after load
+  useEffect(() => {
+    if (!loading && patch) {
+      setFuelEntries((prev) => {
+        const idx = prev.findIndex((p) => p.id === patch.id);
+        if (patch._deleted) {
+          return prev.filter((p) => p.id !== patch.id);
+        }
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = patch;
+          return copy;
+        }
+        return [patch, ...prev];
+      });
+      // recompute consumption map
+      setConsumptionMap((_) => computeConsumptionMap([...(fuelEntries || []), patch]));
+      if (clearPatch) clearPatch();
+    }
+  }, [patch, loading]);
+
+  useEffect(() => {
+    // recompute consumption when entries change
+    setConsumptionMap(computeConsumptionMap(fuelEntries));
+  }, [fuelEntries]);
 
   const consumptionColor = (val: number | null) => {
     if (val == null) return '#999';

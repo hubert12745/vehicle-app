@@ -5,7 +5,7 @@ import api from "../api";
 
 interface RefuelScreenProps {
   vehicleId: number;
-  onRefuelAdded: () => void; // Callback to refresh data or navigate back
+  onRefuelAdded: (patch?: any) => void; // Callback to refresh data or navigate back
   existingEntry?: any; // optional entry for edit mode
 }
 
@@ -71,6 +71,7 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }
     try {
       while (attempt < maxAttempts) {
         try {
+          let res: any;
           if (existingEntry) {
             res = await api.put(`/fuel/${existingEntry.id}`, payload);
           } else {
@@ -107,7 +108,13 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }
           setPricePerLiter("");
           setTotalCost("");
           setDate(new Date());
-          onRefuelAdded(); // Notify parent to refresh data or navigate back
+          // If server returned created/updated object, pass it as patch so UI can update immediately
+          const returned = res?.data;
+          if (returned) {
+            onRefuelAdded(returned);
+            return;
+          }
+          onRefuelAdded();
           return;
         } catch (err: any) {
           lastError = err;
@@ -215,7 +222,7 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry }
       />
 
       <View style={{ marginTop: 20 }}>
-        <Button title="⬅️ Powrót" onPress={onRefuelAdded} />
+        <Button title="⬅️ Powrót" onPress={() => onRefuelAdded()} />
       </View>
     </View>
   );

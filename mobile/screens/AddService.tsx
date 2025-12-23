@@ -5,7 +5,7 @@ import api, { updateService, deleteService } from "../api";
 
 interface AddServiceScreenProps {
   vehicleId: number;
-  onServiceAdded: () => void;
+  onServiceAdded: (patch?: any) => void; // accept optional patch object
   existingEntry?: any | null;
 }
 
@@ -53,17 +53,69 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
 
       if (existingEntry && existingEntry.id) {
         // edit mode
-        await updateService(existingEntry.id, payload);
+        try {
+          await api.get(`/service/${existingEntry.id}`);
+        } catch (e: any) {
+          if (e?.response?.status === 404) {
+            Alert.alert('Błąd', 'Wpis serwisowy nie istnieje na serwerze. Odświeżam listę.');
+            onServiceAdded();
+            return;
+          }
+          throw e;
+        }
+
+        console.log('Updating service', existingEntry.id, payload);
+        try {
+          const resp = await updateService(existingEntry.id, payload);
+          // updateService uses POST /service/upsert and returns created/updated item
+          if (resp && (resp.status === 200 || resp.status === 201)) {
+            const item = resp.data;
+            Alert.alert('Sukces', 'Wpis serwisowy zaktualizowany');
+            onServiceAdded(item);
+            return;
+          }
+        } catch (err: any) {
+          console.error('Update service failed:', err.response?.data || err.message);
+          if (err?.response?.status === 404) {
+            try {
+              const dbg = await api.get('/debug/service-ids');
+              console.log('Debug service ids:', dbg.data);
+              Alert.alert('Błąd', 'Wpis nie znaleziony na serwerze. Spróbuję utworzyć nowy wpis zamiast aktualizacji.');
+            } catch (dbgErr: any) {
+              console.error('Failed to fetch debug/service-ids:', dbgErr?.response?.data || dbgErr?.message);
+            }
+            try {
+              const createResp = await api.post('/service/', payload);
+              console.log('Fallback create succeeded:', createResp?.data);
+              Alert.alert('Utworzono nowy wpis', 'Oryginalny wpis nie istniał, utworzono nowy wpis serwisowy.');
+              onServiceAdded(createResp?.data);
+              return;
+            } catch (createErr: any) {
+              console.error('Fallback create failed:', createErr?.response?.data || createErr?.message);
+              Alert.alert('Błąd', 'Nie udało się utworzyć nowego wpisu.');
+              onServiceAdded();
+              return;
+            }
+          }
+          throw err;
+        }
       } else {
-        await api.post("/service/", payload);
+        const createResp = await api.post("/service/", payload);
+        if (createResp && (createResp.status === 201 || createResp.status === 200)) {
+          const item = createResp.data;
+          Alert.alert("Sukces", "Dane serwisowe zostały dodane!");
+          setTitle("");
+          setDescription("");
+          setCost("");
+          setDate(new Date());
+          setNextDueDate(null);
+          onServiceAdded(item);
+          return;
+        }
       }
 
+      // Fallback to simple behavior
       Alert.alert("Sukces", "Dane serwisowe zostały dodane!");
-      setTitle("");
-      setDescription("");
-      setCost("");
-      setDate(new Date());
-      setNextDueDate(null);
       onServiceAdded();
     } catch (err: any) {
       console.error("❌ Błąd dodawania serwisu:", err.response?.data || err.message);
@@ -84,8 +136,17 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
         { text: 'Usuń', style: 'destructive', onPress: async () => {
             setLoading(true);
             try {
-              await deleteService(existingEntry.id);
-              Alert.alert('Usunięto', 'Wpis serwisowy został usunięty.');
+              const res = await deleteService(existingEntry.id);
+              if (res && (res.status === 200 || res.status === 204)) {
+                Alert.alert('Usunięto', 'Wpis serwisowy został usunięty.');
+                onServiceAdded({ id: existingEntry.id, _deleted: true });
+                return;
+              } else if (res && res.status === 404) {
+                Alert.alert('Błąd', 'Wpis nie istniał. Odświeżam listę.');
+                onServiceAdded();
+                return;
+              }
+              Alert.alert('Błąd', 'Nie udało się usunąć wpisu.');
               onServiceAdded();
             } catch (e: any) {
               console.error('Błąd usuwania serwisu', e);
@@ -172,7 +233,7 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
       )}
 
       <View style={{ marginTop: 20 }}>
-        <Button title="⬅️ Powrót" onPress={onServiceAdded} />
+        <Button title="⬅️ Powrót" onPress={() => onServiceAdded()} />
       </View>
     </View>
   );

@@ -40,6 +40,10 @@ export default function VehiclesScreen({
   const [selectedServiceToEdit, setSelectedServiceToEdit] = useState<any | null>(null);
   const [openedFromServiceEntries, setOpenedFromServiceEntries] = useState(false);
 
+  // One-time patches from editor screens to merge into list UI without full reload
+  const [servicePatch, setServicePatch] = useState<any | null>(null);
+  const [fuelPatch, setFuelPatch] = useState<any | null>(null);
+
   const loadVehicles = async () => {
     try {
       const res = await api.get<Vehicle[]>("/vehicles/");
@@ -126,7 +130,7 @@ export default function VehiclesScreen({
         <RefuelScreen
           vehicleId={selectedVehicleId}
           existingEntry={selectedFuelToEdit}
-          onRefuelAdded={() => {
+          onRefuelAdded={(patch?: any) => {
             setShowRefuel(false);
             // if refuel was opened from entries, return to entries view
             if (openedFromEntries) {
@@ -136,6 +140,8 @@ export default function VehiclesScreen({
               setSelectedVehicleId(null);
             }
             setSelectedFuelToEdit(null);
+            // if the editor returned a patch, store it so FuelEntriesScreen can merge it
+            if (patch) setFuelPatch(patch);
             loadVehicles();
           }}
         />
@@ -164,7 +170,7 @@ export default function VehiclesScreen({
         <AddServiceScreen
           vehicleId={selectedVehicleId}
           existingEntry={selectedServiceToEdit}
-          onServiceAdded={() => {
+          onServiceAdded={(patch?: any) => {
             setShowAddService(false);
             // if service editor was opened from entries, return to entries view
             if (openedFromServiceEntries) {
@@ -174,6 +180,8 @@ export default function VehiclesScreen({
               setSelectedVehicleId(null);
             }
             setSelectedServiceToEdit(null);
+            // If patch present, store and let ServiceEntries merge it. If patch indicates deletion, signal by id
+            if (patch) setServicePatch(patch);
             loadVehicles();
           }}
         />
@@ -192,6 +200,8 @@ export default function VehiclesScreen({
             setOpenedFromServiceEntries(true);
             setShowAddService(true);
           }}
+          patch={servicePatch}
+          clearPatch={() => setServicePatch(null)}
         />
       )}
 

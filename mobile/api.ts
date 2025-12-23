@@ -59,8 +59,21 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+// log response errors to help debugging
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    try {
+      console.error('[API ERROR]', error?.response?.status, error?.response?.data, 'url=', error?.config?.url);
+    } catch (e) {}
+    return Promise.reject(error);
+  }
+);
+
 export async function updateService(id: number, payload: any) {
-  return api.put(`/service/${id}`, payload);
+  const upsertPayload = { ...payload, id };
+  console.log(`UPSERT ${api.defaults.baseURL}/service/upsert`, upsertPayload);
+  return api.post('/service/upsert', upsertPayload);
 }
 
 export async function getServicesForVehicle(vehicleId: number) {
@@ -68,7 +81,18 @@ export async function getServicesForVehicle(vehicleId: number) {
 }
 
 export async function deleteService(id: number) {
-  return api.delete(`/service/${id}`);
+  try {
+    console.log(`DELETE ${api.defaults.baseURL}/service/${id}`);
+    const res = await api.delete(`/service/${id}`);
+    return res;
+  } catch (err: any) {
+    // return the response if available (so caller can inspect status/body) instead of throwing
+    if (err?.response) {
+      console.warn('[API] deleteService returned error response:', err.response.status, err.response.data);
+      return err.response;
+    }
+    throw err;
+  }
 }
 
 export default api;

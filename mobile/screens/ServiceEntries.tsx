@@ -14,9 +14,11 @@ interface ServiceEntriesScreenProps {
   vehicleId: number;
   onBack: () => void; // Callback to navigate back to the vehicle list
   onEditEntry?: (entry: ServiceEntry) => void;
+  patch?: ServiceEntry | null; // optional one-time patch object to merge into list after load
+  clearPatch?: () => void; // callback to clear patch in parent
 }
 
-export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry }: ServiceEntriesScreenProps) {
+export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry, patch = null, clearPatch }: ServiceEntriesScreenProps) {
   const [serviceEntries, setServiceEntries] = useState<ServiceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,22 @@ export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry }:
   useEffect(() => {
     loadServiceEntries();
   }, []);
+
+  // If parent supplies a one-time patch (new or updated entry), merge it after load
+  useEffect(() => {
+    if (!loading && patch) {
+      setServiceEntries((prev) => {
+        const idx = prev.findIndex((p) => p.id === patch.id);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = patch;
+          return copy;
+        }
+        return [patch, ...prev];
+      });
+      if (clearPatch) clearPatch();
+    }
+  }, [patch, loading]);
 
   return (
     <View style={styles.container}>
@@ -79,9 +97,21 @@ export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry }:
                         { text: 'Anuluj', style: 'cancel' },
                         { text: 'Usuń', style: 'destructive', onPress: async () => {
                             try {
-                              await deleteService(item.id);
-                              Alert.alert('Usunięto', 'Wpis został usunięty.');
-                              loadServiceEntries();
+                              const res = await deleteService(item.id);
+                              // If deletion succeeded (204) remove from local list immediately
+                              if (res && (res.status === 200 || res.status === 204)) {
+                                setServiceEntries((prev) => prev.filter((p) => p.id !== item.id));
+                                Alert.alert('Usunięto', 'Wpis został usunięty.');
+                              } else if (res && res.status === 404) {
+                                const body = res.data || {};
+                                const msg = body?.detail || 'Wpis nie istnieje na serwerze.';
+                                Alert.alert('Błąd', msg + '\nLista istniejących wpisów zostanie odświeżona.');
+                                loadServiceEntries();
+                              } else {
+                                // Unexpected but handle gracefully
+                                Alert.alert('Błąd', 'Nie udało się usunąć wpisu. Spróbuj ponownie.');
+                                loadServiceEntries();
+                              }
                             } catch (e: any) {
                               console.error('Błąd usuwania serwisu', e);
                               Alert.alert('Błąd', e?.response?.data || e?.message || 'Nieznany błąd');

@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 from typing import List
 from datetime import timedelta, datetime as _datetime
@@ -81,6 +83,32 @@ def health():
     except Exception:
         pass
     return {"status": "ok"}
+
+
+# request logging middleware to help debug 404s and payloads
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    try:
+        path = request.url.path
+        method = request.method
+        auth = request.headers.get('authorization')
+        masked = (auth[:12] + '...') if auth else None
+        print(f"[REQ] {method} {path} auth={masked}")
+        # log body for service endpoints
+        if path.startswith('/service'):
+            try:
+                body = await request.json()
+            except Exception:
+                body = '<unreadable>'
+            print(f"[REQ] body={body}")
+    except Exception:
+        pass
+    response = await call_next(request)
+    try:
+        print(f"[RES] {method} {path} -> {response.status_code}")
+    except Exception:
+        pass
+    return response
 
 
 # -------------------------------
@@ -412,7 +440,7 @@ def create_service_event(
         session.commit()
         session.refresh(db_event)
         # return a lightweight dict that includes `title` for frontend compatibility
-        return {
+        return JSONResponse(status_code=201, content={
             "id": db_event.id,
             "vehicle_id": db_event.vehicle_id,
             "date": db_event.date.isoformat() if hasattr(db_event.date, 'isoformat') else db_event.date,
@@ -421,7 +449,7 @@ def create_service_event(
             "description": db_event.description,
             "cost": db_event.cost,
             "next_due_date": db_event.next_due_date.isoformat() if db_event.next_due_date and hasattr(db_event.next_due_date, 'isoformat') else db_event.next_due_date,
-        }
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -441,17 +469,7 @@ def update_service_event(
     except Exception:
         pass
 
-    # Find existing event
-    db_event = session.get(ServiceEvent, service_id)
-    if not db_event:
-        raise HTTPException(status_code=404, detail="Wpis serwisu nie znaleziony")
-
-    # Ensure vehicle belongs to user
-    vehicle = session.get(Vehicle, db_event.vehicle_id)
-    if not vehicle or vehicle.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Nie masz dostępu do tego wpisu")
-
-    # validate/parse cost
+    # validate/parse cost up front so we can use it for both update and fallback-create
     try:
         cost_val = float(str(payload.cost).replace(' ', '').replace(',', '.'))
     except Exception:
@@ -477,6 +495,47 @@ def update_service_event(
         except Exception:
             next_due = None
 
+    # Find existing event
+    db_event = session.get(ServiceEvent, service_id)
+    if not db_event:
+        # Fallback: create new ServiceEvent (upsert behavior)
+        print(f"[DEBUG] service id={service_id} not found — creating new event as fallback")
+        vehicle = session.get(Vehicle, payload.vehicle_id)
+        if not vehicle or vehicle.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Nie masz dostępu do tego pojazdu")
+
+        new_event = ServiceEvent(
+            vehicle_id=payload.vehicle_id,
+            date=date_val,
+            type=payload.type,
+            description=payload.description,
+            cost=cost_val,
+            next_due_date=next_due,
+        )
+        try:
+            session.add(new_event)
+            session.commit()
+            session.refresh(new_event)
+            return JSONResponse(status_code=201, content={
+                "id": new_event.id,
+                "vehicle_id": new_event.vehicle_id,
+                "date": new_event.date.isoformat() if hasattr(new_event.date, 'isoformat') else new_event.date,
+                "title": new_event.type,
+                "type": new_event.type,
+                "description": new_event.description,
+                "cost": new_event.cost,
+                "next_due_date": new_event.next_due_date.isoformat() if new_event.next_due_date and hasattr(new_event.next_due_date, 'isoformat') else new_event.next_due_date,
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+
+    # Ensure vehicle belongs to user
+    vehicle = session.get(Vehicle, db_event.vehicle_id)
+    if not vehicle or vehicle.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Nie masz dostępu do tego wpisu")
+
     # apply updates
     db_event.type = payload.type
     db_event.description = payload.description
@@ -489,7 +548,7 @@ def update_service_event(
         session.commit()
         session.refresh(db_event)
         # return dict with `title` for frontend compatibility
-        return {
+        return JSONResponse(status_code=200, content={
             "id": db_event.id,
             "vehicle_id": db_event.vehicle_id,
             "date": db_event.date.isoformat() if hasattr(db_event.date, 'isoformat') else db_event.date,
@@ -498,7 +557,7 @@ def update_service_event(
             "description": db_event.description,
             "cost": db_event.cost,
             "next_due_date": db_event.next_due_date.isoformat() if db_event.next_due_date and hasattr(db_event.next_due_date, 'isoformat') else db_event.next_due_date,
-        }
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -557,7 +616,11 @@ def delete_service_event(
             existing_ids = []
             print(f"[DEBUG] delete_service_event: error while listing existing ids: {e}")
         print(f"[DEBUG] delete_service_event: service_id {service_id} not found. existing_service_ids_for_user={existing_ids[:50]}")
-        raise HTTPException(status_code=404, detail="Wpis serwisu nie znaleziony")
+        # Return helpful JSON to the client so it can refresh the UI and show debugging info
+        return JSONResponse(status_code=404, content={
+            "detail": "Wpis serwisu nie znaleziony",
+            "existing_service_ids_for_user": existing_ids[:200],
+        })
 
     vehicle = session.get(Vehicle, db_event.vehicle_id)
     if not vehicle or vehicle.user_id != current_user.id:
@@ -711,3 +774,97 @@ def debug_service_ids(session: Session = Depends(get_session), current_user: Use
         return {"service_count": len(out), "services": out}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.post("/service/upsert")
+def upsert_service_event(
+    payload: dict,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Create or update a service event. Accepts a JSON payload; if payload contains 'id' and entry exists, it's updated; otherwise a new entry is created."""
+    try:
+        sid = payload.get('id')
+        # basic parsing/validation
+        try:
+            cost_val = float(str(payload.get('cost', 0)).replace(' ', '').replace(',', '.'))
+        except Exception:
+            raise HTTPException(status_code=400, detail='Nieprawidłowa wartość kosztu')
+
+        date_val = payload.get('date')
+        if date_val is None:
+            date_val = _datetime.utcnow()
+        else:
+            if isinstance(date_val, str):
+                try:
+                    date_val = _datetime.fromisoformat(date_val)
+                except Exception:
+                    raise HTTPException(status_code=400, detail='Nieprawidłowy format daty; użyj ISO 8601')
+
+        next_due = payload.get('next_due_date')
+        if next_due and isinstance(next_due, str):
+            try:
+                next_due = _datetime.fromisoformat(next_due)
+            except Exception:
+                next_due = None
+
+        # If id provided, try update
+        if sid:
+            db_event = session.get(ServiceEvent, int(sid))
+            if db_event:
+                vehicle = session.get(Vehicle, db_event.vehicle_id)
+                if not vehicle or vehicle.user_id != current_user.id:
+                    raise HTTPException(status_code=403, detail='Nie masz dostępu do tego wpisu')
+                db_event.type = payload.get('type', db_event.type)
+                db_event.description = payload.get('description', db_event.description)
+                db_event.cost = cost_val
+                db_event.date = date_val
+                db_event.next_due_date = next_due
+                session.add(db_event)
+                session.commit()
+                session.refresh(db_event)
+                return JSONResponse(status_code=200, content={
+                    'id': db_event.id,
+                    'vehicle_id': db_event.vehicle_id,
+                    'date': db_event.date.isoformat() if hasattr(db_event.date,'isoformat') else db_event.date,
+                    'title': db_event.type,
+                    'type': db_event.type,
+                    'description': db_event.description,
+                    'cost': db_event.cost,
+                    'next_due_date': db_event.next_due_date.isoformat() if db_event.next_due_date and hasattr(db_event.next_due_date,'isoformat') else db_event.next_due_date,
+                })
+            # if id provided but not found, fallthrough to create
+
+        # create new entry: ensure vehicle belongs to user
+        vehicle_id = payload.get('vehicle_id')
+        vehicle = session.get(Vehicle, vehicle_id)
+        if not vehicle or vehicle.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail='Nie masz dostępu do tego pojazdu')
+
+        new_event = ServiceEvent(
+            vehicle_id=vehicle_id,
+            date=date_val,
+            type=payload.get('type', ''),
+            description=payload.get('description', None),
+            cost=cost_val,
+            next_due_date=next_due,
+        )
+        session.add(new_event)
+        session.commit()
+        session.refresh(new_event)
+        return JSONResponse(status_code=201, content={
+            'id': new_event.id,
+            'vehicle_id': new_event.vehicle_id,
+            'date': new_event.date.isoformat() if hasattr(new_event.date,'isoformat') else new_event.date,
+            'title': new_event.type,
+            'type': new_event.type,
+            'description': new_event.description,
+            'cost': new_event.cost,
+            'next_due_date': new_event.next_due_date.isoformat() if new_event.next_due_date and hasattr(new_event.next_due_date,'isoformat') else new_event.next_due_date,
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f'Internal server error: {e}')
