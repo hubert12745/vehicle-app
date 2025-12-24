@@ -2,13 +2,14 @@
 import { StyleSheet } from 'react-native';
 
 export const COLORS = {
-  background: '#F6F8FB',
+  background: '#F4F6FB',
   card: '#FFFFFF',
-  primary: '#2E86DE',
-  accent: '#2ECC71',
-  danger: '#E74C3C',
-  text: '#2C3E50',
-  muted: '#7F8C8D',
+  primary: '#0A84FF',
+  accent: '#00C853',
+  danger: '#FF3B30',
+  text: '#0B2545',
+  muted: '#6B7280',
+  soft: '#F1F5F9',
 };
 
 export default StyleSheet.create({
@@ -26,8 +27,21 @@ export default StyleSheet.create({
     elevation: 3,
   },
 
-  headerTitle: { fontSize: 22, fontWeight: '700', color: COLORS.text, textAlign: 'center', marginBottom: 8 },
-  headerSubtitle: { fontSize: 14, color: COLORS.muted, textAlign: 'center', marginBottom: 12 },
+  cardElevated: {
+    width: '100%',
+    backgroundColor: COLORS.card,
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.09,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+
+  headerTitle: { fontSize: 22, fontWeight: '700', color: COLORS.text, textAlign: 'left', marginBottom: 8 },
+  headerSubtitle: { fontSize: 14, color: COLORS.muted, textAlign: 'left', marginBottom: 12 },
+
+  sectionHeader: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
 
   input: {
     borderWidth: 1,
@@ -48,6 +62,15 @@ export default StyleSheet.create({
   },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
 
+  secondaryBtn: {
+    backgroundColor: COLORS.soft,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryBtnText: { color: COLORS.text, fontWeight: '600' },
+
   ghostBtn: {
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -55,9 +78,12 @@ export default StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   ghostBtnText: { color: COLORS.text, fontWeight: '600' },
 
   smallLink: { color: COLORS.primary, textAlign: 'center', marginTop: 8 },
-});
 
+  mutedText: { color: COLORS.muted },
+});
