@@ -84,5 +84,6 @@ export default function App() {
     );
   }
 
-  return <VehiclesScreen token={token} onLogout={handleLogout} />;
+  // Start VehiclesScreen in focused (fokus) mode by default after login
+  return <VehiclesScreen token={token} onLogout={handleLogout} initialFocusedMode={true} />;
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, BackHandler, Platform, LayoutAnimation, UIManager } from "react-native";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, BackHandler, Platform, LayoutAnimation, UIManager, Modal } from "react-native";
 import api from "../api";
 import AddVehicleScreen from "./AddVehicle";
 import RefuelScreen from "./Refuel";
@@ -10,6 +10,7 @@ import ViewFuel from './ViewFuel';
 import ViewService from './ViewService';
 import theme from '../theme';
 import { Ionicons } from '@expo/vector-icons';
+import ConsumptionChart from './ConsumptionChart';
 
 interface Vehicle {
   id: number;
@@ -21,9 +22,12 @@ interface Vehicle {
 export default function VehiclesScreen({
   token,
   onLogout,
+  initialFocusedMode = false,
 }: {
   token: string;
   onLogout: () => void;
+  // when true, start the screen in focused (fokus) mode
+  initialFocusedMode?: boolean;
 }) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +60,7 @@ export default function VehiclesScreen({
 
   // Vehicle switcher / focused view for cleaning up main page
   const [currentVehicleIndex, setCurrentVehicleIndex] = useState<number>(0);
-  const [focusedMode, setFocusedMode] = useState<boolean>(false);
+  const [focusedMode, setFocusedMode] = useState<boolean>(initialFocusedMode);
   const [showQuickMenu, setShowQuickMenu] = useState<boolean>(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState<boolean>(false);
 
@@ -255,15 +259,6 @@ export default function VehiclesScreen({
         )}
       </View>
 
-      {/* Overlay to close menus when tapping outside - rendered before menus so menus can sit on top */}
-      {(showQuickMenu || showHeaderMenu) && (
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => { setShowQuickMenu(false); setShowHeaderMenu(false); }}
-          style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.15)', zIndex: 50 }}
-        />
-      )}
-
       {/* Header dropdown menu (simple) */}
       {showHeaderMenu && (
         <View style={{ position: 'absolute', right: 18, top: 54, backgroundColor: '#fff', borderRadius: 8, padding: 8, shadowColor: '#000', shadowOpacity: 0.08, elevation: 6, zIndex: 100 }}>
@@ -335,6 +330,8 @@ export default function VehiclesScreen({
                 )}
               />
             )}
+            {/* Consumption chart — shows L/100km computed from recent entries */}
+            <ConsumptionChart entries={recentFuel} />
             <TouchableOpacity style={{ marginTop: 8, alignSelf: 'flex-end' }} onPress={() => { setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowFuelEntries(true); }}>
               <Text style={{ color: '#2e86de' }}>Pokaż wszystkie tankowania</Text>
             </TouchableOpacity>
@@ -409,31 +406,50 @@ export default function VehiclesScreen({
         />
       )}
 
-      {/* Floating action buttons and quick menu */}
+      {/* Floating action buttons (FAB) */}
       {!showAddVehicle && !showRefuel && !showFuelEntries && !showAddService && !showServiceEntries && (
-        <View style={styles.fabContainer}>
+        <View style={[styles.fabContainer, { zIndex: 1000 }]}>
           <TouchableOpacity style={styles.fab} onPress={() => setShowQuickMenu((s) => !s)}>
             <Ionicons name="add" size={24} color="#fff" />
           </TouchableOpacity>
-
-          {/* Quick menu anchored to FAB */}
-          {showQuickMenu && (
-            <View style={{ position: 'absolute', right: 18, bottom: 92, width: 200, backgroundColor: '#fff', borderRadius: 12, padding: 6, shadowColor: '#000', shadowOpacity: 0.08, elevation: 6, zIndex: 100 }}>
-              <TouchableOpacity accessibilityLabel="Dodaj tankowanie" style={{ paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={openAddRefuelFromMenu}>
-                <Ionicons name="water-outline" size={18} color="#0A84FF" style={{ marginRight: 10 }} />
-                <Text style={{ fontWeight: '700' }}>Dodaj tankowanie</Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityLabel="Dodaj serwis" style={{ paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={openAddServiceFromMenu}>
-                <Ionicons name="construct-outline" size={18} color="#0A84FF" style={{ marginRight: 10 }} />
-                <Text style={{ fontWeight: '700' }}>Dodaj serwis</Text>
-              </TouchableOpacity>
-            </View>
-          )}
 
           <TouchableOpacity style={[styles.fab, { backgroundColor: '#e74c3c', marginTop: 12 }]} onPress={onLogout}>
             <Ionicons name="log-out-outline" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
+      )}
+
+      { /* showHeaderMenu remains as before; quick-menu uses Modal to guarantee top-layer */ }
+      {showQuickMenu && (
+        <Modal
+          transparent
+          animationType="fade"
+          visible={showQuickMenu}
+          onRequestClose={() => setShowQuickMenu(false)}
+          presentationStyle="overFullScreen"
+          statusBarTranslucent={true}
+        >
+          <View style={{ flex: 1 }}>
+            {/* full-screen overlay to dim background and catch taps */}
+            <TouchableOpacity
+              activeOpacity={1}
+              style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.15)' }}
+              onPress={() => setShowQuickMenu(false)}
+            />
+
+            {/* small bubble anchored near FAB */}
+            <View style={{ position: 'absolute', right: 18, bottom: 92, width: 220, backgroundColor: '#fff', borderRadius: 12, padding: 6, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 8, elevation: 40 }}>
+              <TouchableOpacity accessibilityLabel="Dodaj tankowanie" style={{ paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={() => { setShowQuickMenu(false); openAddRefuelFromMenu(); }}>
+                <Ionicons name="water-outline" size={18} color="#0A84FF" style={{ marginRight: 10 }} />
+                <Text style={{ fontWeight: '700' }}>Dodaj tankowanie</Text>
+              </TouchableOpacity>
+              <TouchableOpacity accessibilityLabel="Dodaj serwis" style={{ paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={() => { setShowQuickMenu(false); openAddServiceFromMenu(); }}>
+                <Ionicons name="construct-outline" size={18} color="#0A84FF" style={{ marginRight: 10 }} />
+                <Text style={{ fontWeight: '700' }}>Dodaj serwis</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       )}
 
       {/* Add Vehicle Screen */}
@@ -635,7 +651,7 @@ const styles = StyleSheet.create({
     right: 16,
     bottom: 16,
     alignItems: 'flex-end',
-    zIndex: 100,
+    zIndex: 1000,
   },
   fab: {
     width: 56,
@@ -644,9 +660,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A84FF',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
+    elevation: 6,
     shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
   },
 });
