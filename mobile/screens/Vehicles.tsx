@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, BackHandler, Platform, LayoutAnimation, UIManager, Modal } from "react-native";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, BackHandler, Platform, LayoutAnimation, UIManager, Modal, ScrollView } from "react-native";
 import api from "../api";
 import AddVehicleScreen from "./AddVehicle";
 import RefuelScreen from "./Refuel";
@@ -8,9 +8,9 @@ import AddServiceScreen from "./AddService";
 import ServiceEntriesScreen from "./ServiceEntries";
 import ViewFuel from './ViewFuel';
 import ViewService from './ViewService';
+import ConsumptionChart from './ConsumptionChart';
 import theme from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import ConsumptionChart from './ConsumptionChart';
 
 interface Vehicle {
   id: number;
@@ -277,88 +277,92 @@ export default function VehiclesScreen({
 
       {/* If user has exactly one vehicle or user enabled focused mode, show compact home for focusedVehicle */}
       {( (vehicles.length === 1) || focusedMode ) && !showAddVehicle && !showRefuel && !showFuelEntries && !showAddService && !showServiceEntries && focusedVehicle && (
-        <View>
-          <View style={[theme.card, styles.card]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View>
-                <Text style={styles.cardTitle}>{focusedVehicle?.make} {focusedVehicle?.model}</Text>
-                <Text style={styles.cardSubtitle}>{focusedVehicle?.registration || 'Brak rejestracji'}</Text>
+        <FlatList
+          data={[1]}
+          keyExtractor={() => 'focused-home'}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: 160 }}
+          renderItem={() => (
+            <View>
+              <View style={[theme.card, styles.card]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View>
+                    <Text style={styles.cardTitle}>{focusedVehicle?.make} {focusedVehicle?.model}</Text>
+                    <Text style={styles.cardSubtitle}>{focusedVehicle?.registration || 'Brak rejestracji'}</Text>
+                  </View>
+                  {/* removed inline add button (use FAB quick-menu instead) */}
+                </View>
+
+                <View style={{ marginTop: 12 }}>
+                  <View style={styles.buttonsGrid}>
+                    <View style={styles.col}>
+                      <TouchableOpacity style={[theme.ghostBtn, styles.actionBtn]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowFuelEntries(true); }}>
+                        <Ionicons name="speedometer-outline" size={18} color={theme.headerTitle.color || '#34495e'} />
+                        <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>{focusedVehicle ? 'Tankowania' : 'Tankowania'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.col}>
+                      <TouchableOpacity style={[theme.ghostBtn, styles.actionBtn]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowAddService(true); }}>
+                        <Ionicons name="construct-outline" size={18} color={theme.headerTitle.color || '#34495e'} />
+                        <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>Serwis</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.col}>
+                      <TouchableOpacity style={[theme.ghostBtn, styles.actionBtn]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowServiceEntries(true); }}>
+                        <Ionicons name="time-outline" size={18} color={theme.headerTitle.color || '#34495e'} />
+                        <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>Historia</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
               </View>
-              {/* removed inline add button (use FAB quick-menu instead) */}
-            </View>
 
-            <View style={{ marginTop: 12 }}>
-              <View style={styles.buttonsGrid}>
-                <View style={styles.col}>
-                  <TouchableOpacity style={[theme.ghostBtn, styles.actionBtn]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowFuelEntries(true); }}>
-                    <Ionicons name="speedometer-outline" size={18} color={theme.headerTitle.color || '#34495e'} />
-                    <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>{focusedVehicle ? 'Tankowania' : 'Tankowania'}</Text>
-                  </TouchableOpacity>
-                </View>
+              {/* Recent fuel entries (rendered as plain Views to avoid nested VirtualizedLists) */}
+              <View style={[theme.card, { padding: 12, marginBottom: 12 }]}>
+                <Text style={[theme.headerSubtitle, { marginBottom: 8 }]}>Ostatnie tankowania</Text>
+                {recentFuel.length === 0 ? (
+                  <Text style={{ color: '#666' }}>Brak wpisów tankowań</Text>
+                ) : (
+                  <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled={true} contentContainerStyle={{ paddingVertical: 4 }}>
+                    {recentFuel.map((item: any) => (
+                      <TouchableOpacity key={String(item.id || Math.random())} style={{ paddingVertical: 8 }} onPress={() => setViewFuelEntry(item)}>
+                        <Text style={{ fontWeight: '600' }}>{item.odometer} km — {item.liters} l</Text>
+                        <Text style={{ color: '#666' }}>{new Date(item.date).toLocaleDateString()} • {item.total_cost} zł</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+                {/* Consumption chart — shows L/100km computed from recent entries (optional) */}
+                <ConsumptionChart entries={recentFuel} />
+                <TouchableOpacity style={{ marginTop: 8, alignSelf: 'flex-end' }} onPress={() => { setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowFuelEntries(true); }}>
+                  <Text style={{ color: '#2e86de' }}>Pokaż wszystkie tankowania</Text>
+                </TouchableOpacity>
+              </View>
 
-                <View style={styles.col}>
-                  <TouchableOpacity style={[theme.ghostBtn, styles.actionBtn]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowAddService(true); }}>
-                    <Ionicons name="construct-outline" size={18} color={theme.headerTitle.color || '#34495e'} />
-                    <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>Serwis</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.col}>
-                  <TouchableOpacity style={[theme.ghostBtn, styles.actionBtn]} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowServiceEntries(true); }}>
-                    <Ionicons name="time-outline" size={18} color={theme.headerTitle.color || '#34495e'} />
-                    <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>Historia</Text>
-                  </TouchableOpacity>
-                </View>
+              {/* Recent service events (rendered as plain Views) */}
+              <View style={[theme.card, { padding: 12, marginBottom: 12 }]}>
+                <Text style={[theme.headerSubtitle, { marginBottom: 8 }]}>Ostatnie serwisy</Text>
+                {recentService.length === 0 ? (
+                  <Text style={{ color: '#666' }}>Brak wpisów serwisowych</Text>
+                ) : (
+                  <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled={true} contentContainerStyle={{ paddingVertical: 4 }}>
+                    {recentService.map((item: any) => (
+                      <TouchableOpacity key={String(item.id || Math.random())} style={{ paddingVertical: 8 }} onPress={() => setViewServiceEntry(item)}>
+                        <Text style={{ fontWeight: '600' }}>{item.type} — {item.cost} zł</Text>
+                        <Text style={{ color: '#666' }}>{new Date(item.date).toLocaleDateString()}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+                <TouchableOpacity style={{ marginTop: 8, alignSelf: 'flex-end' }} onPress={() => { setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowServiceEntries(true); }}>
+                  <Text style={{ color: '#2e86de' }}>Pokaż historię serwisów</Text>
+                </TouchableOpacity>
               </View>
             </View>
-          </View>
-
-          {/* Recent fuel entries */}
-          <View style={[theme.card, { padding: 12, marginBottom: 12 }]}>
-            <Text style={[theme.headerSubtitle, { marginBottom: 8 }]}>Ostatnie tankowania</Text>
-            {recentFuel.length === 0 ? (
-              <Text style={{ color: '#666' }}>Brak wpisów tankowań</Text>
-            ) : (
-              <FlatList
-                data={recentFuel}
-                keyExtractor={(it) => it.id?.toString() || Math.random().toString()}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={{ paddingVertical: 8 }} onPress={() => setViewFuelEntry(item)}>
-                    <Text style={{ fontWeight: '600' }}>{item.odometer} km — {item.liters} l</Text>
-                    <Text style={{ color: '#666' }}>{new Date(item.date).toLocaleDateString()} • {item.total_cost} zł</Text>
-                  </TouchableOpacity>
-                )}
-              />
-            )}
-            {/* Consumption chart — shows L/100km computed from recent entries */}
-            <ConsumptionChart entries={recentFuel} />
-            <TouchableOpacity style={{ marginTop: 8, alignSelf: 'flex-end' }} onPress={() => { setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowFuelEntries(true); }}>
-              <Text style={{ color: '#2e86de' }}>Pokaż wszystkie tankowania</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Recent service events */}
-          <View style={[theme.card, { padding: 12, marginBottom: 12 }]}>
-            <Text style={[theme.headerSubtitle, { marginBottom: 8 }]}>Ostatnie serwisy</Text>
-            {recentService.length === 0 ? (
-              <Text style={{ color: '#666' }}>Brak wpisów serwisowych</Text>
-            ) : (
-              <FlatList
-                data={recentService}
-                keyExtractor={(it) => it.id?.toString() || Math.random().toString()}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={{ paddingVertical: 8 }} onPress={() => setViewServiceEntry(item)}>
-                    <Text style={{ fontWeight: '600' }}>{item.type} — {item.cost} zł</Text>
-                    <Text style={{ color: '#666' }}>{new Date(item.date).toLocaleDateString()}</Text>
-                  </TouchableOpacity>
-                )}
-              />
-            )}
-            <TouchableOpacity style={{ marginTop: 8, alignSelf: 'flex-end' }} onPress={() => { setSelectedVehicleId(focusedVehicle?.id ?? selectedVehicleId); setShowServiceEntries(true); }}>
-              <Text style={{ color: '#2e86de' }}>Pokaż historię serwisów</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+          )}
+        />
       )}
 
       {/* Modern card list: show only when not in focusedMode and there are multiple vehicles */}
@@ -408,12 +412,12 @@ export default function VehiclesScreen({
 
       {/* Floating action buttons (FAB) */}
       {!showAddVehicle && !showRefuel && !showFuelEntries && !showAddService && !showServiceEntries && (
-        <View style={[styles.fabContainer, { zIndex: 1000 }]}>
-          <TouchableOpacity style={styles.fab} onPress={() => setShowQuickMenu((s) => !s)}>
+        <View style={[styles.fabContainer, { zIndex: 10000, elevation: 10000 }]}>
+          <TouchableOpacity style={[styles.fab, { zIndex: 10001, elevation: 10001 }]} onPress={() => setShowQuickMenu((s) => !s)}>
             <Ionicons name="add" size={24} color="#fff" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.fab, { backgroundColor: '#e74c3c', marginTop: 12 }]} onPress={onLogout}>
+          <TouchableOpacity style={[styles.fab, { backgroundColor: '#e74c3c', marginTop: 12, zIndex: 10002, elevation: 10002 }]} onPress={onLogout}>
             <Ionicons name="log-out-outline" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -438,7 +442,7 @@ export default function VehiclesScreen({
             />
 
             {/* small bubble anchored near FAB */}
-            <View style={{ position: 'absolute', right: 18, bottom: 92, width: 220, backgroundColor: '#fff', borderRadius: 12, padding: 6, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 8, elevation: 40 }}>
+            <View style={{ position: 'absolute', right: 18, bottom: 92, width: 220, backgroundColor: '#fff', borderRadius: 12, padding: 6, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 8, elevation: 120, zIndex: 10003 }}>
               <TouchableOpacity accessibilityLabel="Dodaj tankowanie" style={{ paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={() => { setShowQuickMenu(false); openAddRefuelFromMenu(); }}>
                 <Ionicons name="water-outline" size={18} color="#0A84FF" style={{ marginRight: 10 }} />
                 <Text style={{ fontWeight: '700' }}>Dodaj tankowanie</Text>
@@ -651,7 +655,7 @@ const styles = StyleSheet.create({
     right: 16,
     bottom: 16,
     alignItems: 'flex-end',
-    zIndex: 1000,
+    zIndex: 10000,
   },
   fab: {
     width: 56,

@@ -213,7 +213,7 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, onVi
       {loading && <ActivityIndicator size="large" color={theme.primary || '#2e86de'} />}
       {error && <Text style={[theme.headerSubtitle, { color: 'red' }]}>{error}</Text>}
 
-      <View style={{ marginTop: 8 }}>
+      <View style={{ marginTop: 8, flex: 1 }}>
         {/* Prediction and anomaly summary */}
         {!loading && !error && (
           <View style={{ marginBottom: 12 }}>
@@ -242,7 +242,8 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, onVi
 
         {!loading && !error && (
           <FlatList
-            style={{ marginTop: 8 }}
+            style={{ marginTop: 8, flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 24 }}
             data={fuelEntries}
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item }) => {
@@ -275,11 +276,11 @@ export default function FuelEntriesScreen({ vehicleId, onBack, onEditEntry, onVi
                  </TouchableOpacity>
                );
              }}
-           />
+          />
          )}
-      </View>
+       </View>
 
-      <View style={{ marginTop: 20 }}>
+       <View style={{ marginTop: 20 }}>
         <TouchableOpacity style={[theme.ghostBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]} onPress={onBack}>
           <Ionicons name="arrow-back-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
           <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>Powrót</Text>

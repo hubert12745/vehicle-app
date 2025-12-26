@@ -66,7 +66,7 @@ export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry, o
 
   return (
     <View style={theme.page}>
-      <View style={[theme.card, { paddingBottom: 8 }]}>
+      <View style={[theme.card, { paddingBottom: 8, flex: 1 }]}>
         <Text style={styles.title}>🛠️ Historia serwisów</Text>
 
         {loading && <ActivityIndicator size="large" color={theme.primary || '#2e86de'} />}
@@ -78,6 +78,8 @@ export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry, o
 
         {!loading && !error && (
           <FlatList
+            style={{ marginTop: 8, flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 24 }}
             data={serviceEntries}
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item }) => (

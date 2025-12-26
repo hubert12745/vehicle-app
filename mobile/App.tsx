@@ -1,3 +1,5 @@
+import 'react-native-reanimated';
+import 'react-native-gesture-handler';
 import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator, Button, BackHandler, Platform } from "react-native";
 import Storage from "./storage";
