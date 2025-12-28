@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { View, Text, Dimensions, Platform } from 'react-native';
 // react-native-chart-kit will be dynamically imported on native environments to avoid
 // bundling native-only deps when the component is required on web.
@@ -13,6 +13,7 @@ type FuelEntry = {
 export default function ConsumptionChart({ entries }: { entries: FuelEntry[] }) {
   const [WebChart, setWebChart] = useState<any>(null);
   const [NativeLineChart, setNativeLineChart] = useState<any>(null);
+  const tickDebugLogged = useRef(false);
 
   useEffect(() => {
     // dynamically import web-only chart library or native react-native-chart-kit as needed
@@ -100,23 +101,78 @@ export default function ConsumptionChart({ entries }: { entries: FuelEntry[] }) 
              display: true,
              autoSkip: false,
              // Chart.js typically calls ticks callback as (value, index, ticks)
-             callback: function (value: any) {
-               const n = Number(String(value).replace(',', '.'));
-               if (!isFinite(n)) return '';
-               return n.toFixed(2);
+             callback: function (value: any, index: any, ticks: any) {
+               try {
+                 let v: any = value;
+                 // If Chart.js passes a tick/context object, extract numeric value
+                 if (v && typeof v === 'object') {
+                   if ('value' in v) v = v.value;
+                   else if ('raw' in v) v = v.raw;
+                   else if ('parsed' in v) {
+                     const p = v.parsed;
+                     if (typeof p === 'number') v = p;
+                     else if (p && typeof p === 'object') v = p.y ?? Object.values(p)[0];
+                   } else if ('tick' in v && typeof v.tick === 'object' && 'value' in v.tick) v = v.tick.value;
+                   else if ('label' in v) v = v.label;
+                 }
+
+                 // fallback: if value is not numeric, try ticks[index]
+                 if ((v === null || v === undefined || v === '') && Array.isArray(ticks) && typeof index === 'number') {
+                   const tk = ticks[index];
+                   if (tk) {
+                     if (typeof tk.value !== 'undefined') v = tk.value;
+                     else if (typeof tk.label !== 'undefined') v = tk.label;
+                   }
+                 }
+
+                 // If v is a string that contains a number and unit (e.g. "6.23 L/100km"), extract numeric part
+                 if (typeof v === 'string') {
+                   const m = v.match(/-?[0-9]+[0-9.,]*/);
+                   if (m && m[0]) {
+                     const parsed = Number(m[0].replace(',', '.'));
+                     if (isFinite(parsed)) return parsed.toFixed(2);
+                   }
+                 }
+
+                 if (v === null || v === undefined || v === '') return '';
+                 const n = Number(String(v).replace(',', '.').replace(/[^0-9.-]/g, ''));
+                 if (!isFinite(n)) return '';
+                 return n.toFixed(2);
+               } catch (e) {
+                 return '';
+               }
              },
            },
          },
        },
      };
 
+    // compute visible tick labels (5 steps) to render in a left column as a reliable fallback
+    const steps = 4;
+    const tickLabels: string[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const val = yMaxValue - (i * (yMaxValue - yMinValue)) / steps;
+      tickLabels.push(`${val.toFixed(2)} L/100km`);
+    }
+
     return (
       <View style={{ paddingVertical: 8, height: 320 }}>
         <Text style={{ fontWeight: '600', marginBottom: 6 }}>Wykres spalania (L/100km)</Text>
-        <View style={{ flex: 1 }}>
-          {/* @ts-ignore */}
-          <WebChart data={data} options={options} />
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'stretch' }}>
+          {/* Left labels column */}
+          <View style={{ width: 76, justifyContent: 'space-between', paddingVertical: 8 }}>
+            {tickLabels.map((t, idx) => (
+              <Text key={idx} style={{ fontSize: 12, color: '#666', textAlign: 'right' }}>{t}</Text>
+            ))}
+          </View>
+
+          {/* Chart canvas */}
+          <View style={{ flex: 1 }}>
+            {/* @ts-ignore */}
+            <WebChart data={data} options={options} />
+          </View>
         </View>
+
         <View style={{ flexDirection: 'row', marginTop: 6 }}>
           <Text style={{ color: '#666', fontSize: 12 }}>Średnie: {mean.toFixed(2)} L/100km</Text>
           <Text style={{ color: '#666', fontSize: 12, marginLeft: 12 }}>Próg anomalii: {threshold.toFixed(2)} L/100km</Text>
