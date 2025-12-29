@@ -13,11 +13,19 @@ export default function AddVehicleScreen({ onVehicleAdded }: Props) {
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
   const [registration, setRegistration] = useState("");
+  const [vin, setVin] = useState("");
+  const [startOdometer, setStartOdometer] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleAddVehicle = async () => {
     if (!make || !model) {
       Alert.alert("Błąd", "Podaj co najmniej markę i model.");
+      return;
+    }
+
+    // optional numeric validation for start odometer
+    if (startOdometer && isNaN(Number(startOdometer))) {
+      Alert.alert('Błąd', 'Przebieg startowy musi być liczbą');
       return;
     }
 
@@ -28,6 +36,8 @@ export default function AddVehicleScreen({ onVehicleAdded }: Props) {
         model,
         year: year ? parseInt(year) : null,
         registration: registration || null,
+        vin: vin || null,
+        start_odometer: startOdometer ? parseInt(startOdometer) : null,
       });
 
       Alert.alert("Sukces", "Pojazd został dodany!");
@@ -35,6 +45,8 @@ export default function AddVehicleScreen({ onVehicleAdded }: Props) {
       setModel("");
       setYear("");
       setRegistration("");
+      setVin("");
+      setStartOdometer("");
       onVehicleAdded(); // wróć do listy i odśwież
     } catch (err: any) {
       console.error("❌ Błąd dodawania pojazdu:", err.response?.data || err.message);
@@ -53,6 +65,8 @@ export default function AddVehicleScreen({ onVehicleAdded }: Props) {
         <TextInput style={theme.input} placeholder="Model (np. Corolla)" value={model} onChangeText={setModel} />
         <TextInput style={theme.input} placeholder="Rok produkcji" keyboardType="numeric" value={year} onChangeText={setYear} />
         <TextInput style={theme.input} placeholder="Numer rejestracyjny" value={registration} onChangeText={setRegistration} />
+        <TextInput style={theme.input} placeholder="VIN" value={vin} onChangeText={setVin} autoCapitalize="characters" />
+        <TextInput style={theme.input} placeholder="Przebieg startowy (km)" keyboardType="numeric" value={startOdometer} onChangeText={setStartOdometer} />
 
         <TouchableOpacity style={[theme.primaryBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]} onPress={handleAddVehicle} disabled={loading}>
           <Ionicons name="add-circle-outline" size={18} color="#fff" />

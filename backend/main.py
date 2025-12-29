@@ -1,7 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Response
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 from typing import List
@@ -9,7 +8,7 @@ from datetime import timedelta, datetime as _datetime
 from sqlalchemy import func
 from db import init_db, get_session
 import os
-from models import User, Vehicle, FuelEntry, ServiceEvent, UserCreate, UserRead, Token, FuelEntryCreate, ServiceEventCreate, UserLogin
+from models import User, Vehicle, FuelEntry, ServiceEvent, UserCreate, UserRead, Token, FuelEntryCreate, ServiceEventCreate, UserLogin, VehicleCreate, VehicleRead
 from auth import hash_password, verify_password, create_access_token, get_current_user
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -59,7 +58,36 @@ app.add_middleware(
 # ✅ inicjalizacja bazy
 @app.on_event("startup")
 def on_startup():
+    # Ensure tables exist
     init_db()
+
+    # Run lightweight migration: add optional columns to vehicle table if missing
+    try:
+        from db import engine
+        from sqlmodel import text
+        with engine.connect() as conn:
+            res = conn.execute(text("PRAGMA table_info('vehicle')")).all()
+            existing_cols = [r[1] for r in res]
+            if 'vin' not in existing_cols:
+                print('[MIGRATE] Adding column vehicle.vin')
+                try:
+                    conn.execute(text("ALTER TABLE vehicle ADD COLUMN vin TEXT;"))
+                except Exception as e:
+                    print(f"[MIGRATE] Failed to add vin: {e}")
+            else:
+                print('[MIGRATE] Column vehicle.vin already present')
+
+            if 'start_odometer' not in existing_cols:
+                print('[MIGRATE] Adding column vehicle.start_odometer')
+                try:
+                    conn.execute(text("ALTER TABLE vehicle ADD COLUMN start_odometer INTEGER;"))
+                except Exception as e:
+                    print(f"[MIGRATE] Failed to add start_odometer: {e}")
+            else:
+                print('[MIGRATE] Column vehicle.start_odometer already present')
+    except Exception as e:
+        # Migration should not prevent app startup; log and continue
+        print(f"[MIGRATE] Migration check failed: {e}")
 
 
 @app.get("/")
@@ -94,8 +122,8 @@ async def log_requests(request: Request, call_next):
         auth = request.headers.get('authorization')
         masked = (auth[:12] + '...') if auth else None
         print(f"[REQ] {method} {path} auth={masked}")
-        # log body for service endpoints
-        if path.startswith('/service'):
+        # log body for service endpoints and vehicle creation to diagnose 422 issues
+        if path.startswith('/service') or path.startswith('/vehicles'):
             try:
                 body = await request.json()
             except Exception:
@@ -177,7 +205,7 @@ def login_json(
 # -------------------------------
 # 🚗 Vehicles
 # -------------------------------
-@app.get("/vehicles/", response_model=List[Vehicle])
+@app.get("/vehicles/", response_model=List[VehicleRead])
 def list_vehicles(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -186,17 +214,41 @@ def list_vehicles(
     return vehicles
 
 
-@app.post("/vehicles/", response_model=Vehicle)
+@app.post("/vehicles/", response_model=VehicleRead, status_code=201)
 def create_vehicle(
-    vehicle: Vehicle,
+    payload: dict,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    vehicle.user_id = current_user.id
-    session.add(vehicle)
+    # Minimal server-side validation so clients aren't blocked by Pydantic 422
+    make = payload.get('make')
+    model = payload.get('model')
+    if not make or not model:
+        raise HTTPException(status_code=400, detail="Pole 'make' i 'model' są wymagane")
+
+    year = payload.get('year')
+    registration = payload.get('registration')
+    vin = payload.get('vin')
+    start_odometer = payload.get('start_odometer')
+
+    try:
+        db_vehicle = Vehicle(
+            user_id=current_user.id,
+            make=str(make),
+            model=str(model),
+            year=int(year) if year is not None and str(year) != '' else None,
+            registration=str(registration) if registration is not None else None,
+            vin=str(vin) if vin is not None else None,
+            start_odometer=int(start_odometer) if start_odometer is not None and str(start_odometer) != '' else None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Nieprawidłowe wartości pól: {e}")
+
+    session.add(db_vehicle)
     session.commit()
-    session.refresh(vehicle)
-    return vehicle
+    session.refresh(db_vehicle)
+
+    return db_vehicle
 
 
 # -------------------------------

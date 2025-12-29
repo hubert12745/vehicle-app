@@ -23,6 +23,8 @@ class Vehicle(SQLModel, table=True):
     model: str
     year: Optional[int] = None
     registration: Optional[str] = None
+    vin: Optional[str] = None
+    start_odometer: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     owner: User = Relationship(back_populates="vehicles")
@@ -72,11 +74,13 @@ class UserRead(SQLModel):
 
 # --- Vehicle ---
 class VehicleCreate(SQLModel):
-    user_id: int
+    # user_id removed: server assigns owner from authenticated user
     make: str
     model: str
     year: Optional[int] = None
     registration: Optional[str] = None
+    vin: Optional[str] = None
+    start_odometer: Optional[int] = None
 
 
 class VehicleRead(SQLModel):
@@ -84,6 +88,8 @@ class VehicleRead(SQLModel):
     make: str
     model: str
     registration: Optional[str] = None
+    vin: Optional[str] = None
+    start_odometer: Optional[int] = None
     created_at: datetime
 
 

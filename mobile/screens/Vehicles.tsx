@@ -17,6 +17,8 @@ interface Vehicle {
   make: string;
   model: string;
   registration?: string;
+  vin?: string;
+  start_odometer?: number;
 }
 
 export default function VehiclesScreen({
@@ -289,6 +291,8 @@ export default function VehiclesScreen({
                   <View>
                     <Text style={styles.cardTitle}>{focusedVehicle?.make} {focusedVehicle?.model}</Text>
                     <Text style={styles.cardSubtitle}>{focusedVehicle?.registration || 'Brak rejestracji'}</Text>
+                    {focusedVehicle?.vin ? <Text style={{ color: '#7f8c8d', marginTop: 4 }}>VIN: {focusedVehicle.vin}</Text> : null}
+                    {focusedVehicle?.start_odometer != null ? <Text style={{ color: '#7f8c8d', marginTop: 2 }}>Przebieg startowy: {focusedVehicle.start_odometer} km</Text> : null}
                   </View>
                   {/* removed inline add button (use FAB quick-menu instead) */}
                 </View>
@@ -377,6 +381,8 @@ export default function VehiclesScreen({
                 <View>
                   <Text style={styles.cardTitle}>{item.make} {item.model}</Text>
                   <Text style={styles.cardSubtitle}>{item.registration || 'Brak rejestracji'}</Text>
+                  {item?.vin ? <Text style={{ color: '#7f8c8d', marginTop: 4 }}>VIN: {item.vin}</Text> : null}
+                  {item?.start_odometer != null ? <Text style={{ color: '#7f8c8d', marginTop: 2 }}>Przebieg startowy: {item.start_odometer} km</Text> : null}
                 </View>
                 {/* removed inline add button (use FAB quick-menu instead) */}
               </View>
