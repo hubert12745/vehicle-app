@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, ActivityIndicator, Alert, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, FlatList, ActivityIndicator, Alert, TouchableOpacity, StyleSheet, Switch } from "react-native";
 import api, { deleteService } from "../api";
 import theme from '../theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,6 +64,20 @@ export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry, o
     }
   }, [patch, loading]);
 
+  const toggleDone = async (item: any) => {
+    try {
+      const payload = { id: item.id, vehicle_id: vehicleId, done: !item.done };
+      const res = await api.post('/service/upsert', payload);
+      if (res && (res.status === 200 || res.status === 201)) {
+        // update local list
+        setServiceEntries((prev) => prev.map((p) => p.id === item.id ? { ...p, done: !p.done } : p));
+      }
+    } catch (e: any) {
+      console.error('Toggle done failed', e);
+      Alert.alert('Błąd', 'Nie udało się zaktualizować statusu.');
+    }
+  };
+
   return (
     <View style={theme.page}>
       <View style={[theme.card, { paddingBottom: 8, flex: 1 }]}>
@@ -89,42 +103,12 @@ export default function ServiceEntriesScreen({ vehicleId, onBack, onEditEntry, o
                   <Text style={styles.cardTitle}>{item.title}</Text>
                   <Text style={styles.cardDesc}>{item.description}</Text>
                   <Text style={styles.cardCost}>Koszt: {item.cost.toFixed(2)} PLN</Text>
+                  <Text style={{ marginTop: 6, color: '#7f8c8d' }}>{item.next_due_date ? `Następny: ${new Date(item.next_due_date).toLocaleDateString()}` : (item.next_due_odometer ? `Następny przebieg: ${item.next_due_odometer} km` : '')}</Text>
 
-                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 }}>
-                    {onEditEntry && (
-                      <TouchableOpacity style={[theme.primaryBtn, { paddingVertical: 6, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }]} onPress={() => onEditEntry(item)}>
-                        <Ionicons name="create-outline" size={16} color="#fff" />
-                        <Text style={[theme.primaryBtnText, { marginLeft: 8 }]}>Edytuj</Text>
-                      </TouchableOpacity>
-                    )}
-
-                    <TouchableOpacity style={[theme.ghostBtn, { marginLeft: 8, borderColor: '#e74c3c', borderWidth: 1, paddingVertical: 6, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center' }]} onPress={() => {
-                       Alert.alert('Usuń wpis', 'Czy na pewno chcesz usunąć ten wpis serwisowy?', [
-                       { text: 'Anuluj', style: 'cancel' },
-                       { text: 'Usuń', style: 'destructive', onPress: async () => {
-                         try {
-                           const res = await deleteService(item.id);
-                           if (res && (res.status === 200 || res.status === 204)) {
-                             setServiceEntries((prev) => prev.filter((p) => p.id !== item.id));
-                             Alert.alert('Usunięto', 'Wpis został usunięty.');
-                           } else if (res && res.status === 404) {
-                             const body = res.data || {};
-                             const msg = body?.detail || 'Wpis nie istnieje na serwerze.';
-                             Alert.alert('Błąd', msg + '\nLista istniejących wpisów zostanie odświeżona.');
-                             loadServiceEntries();
-                           } else {
-                             Alert.alert('Błąd', 'Nie udało się usunąć wpisu. Spróbuj ponownie.');
-                             loadServiceEntries();
-                           }
-                         } catch (e: any) {
-                           console.error('Błąd usuwania serwisu', e);
-                           Alert.alert('Błąd', e?.response?.data || e?.message || 'Nieznany błąd');
-                         }
-                       } }
-                      ]);
-                    }}>
-                      <Ionicons name="trash-outline" size={16} color="#e74c3c" />
-                      <Text style={[theme.ghostBtnText, { marginLeft: 8, color: '#e74c3c' }]}>Usuń</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                    <Text style={{ color: item.done ? '#16a085' : '#e67e22', fontWeight: '700' }}>{item.done ? 'Zrobione' : 'Do zrobienia'}</Text>
+                    <TouchableOpacity style={[theme.ghostBtn, { marginLeft: 8, paddingVertical: 6, paddingHorizontal: 10 }]} onPress={() => toggleDone(item)}>
+                      <Text style={[theme.ghostBtnText]}>{item.done ? 'Oznacz jako nie zrobione' : 'Oznacz jako zrobione'}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

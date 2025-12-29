@@ -54,6 +54,8 @@ class ServiceEvent(SQLModel, table=True):
     description: Optional[str] = None
     cost: float
     next_due_date: Optional[datetime] = None
+    next_due_odometer: Optional[int] = None
+    done: bool = Field(default=False)
 
     vehicle: Vehicle = Relationship(back_populates="service_events")
 
@@ -124,6 +126,8 @@ class ServiceEventCreate(SQLModel):
     description: Optional[str] = None
     cost: float
     next_due_date: Optional[datetime] = None
+    next_due_odometer: Optional[int] = None
+    done: Optional[bool] = False
 
 
 class ServiceEventRead(SQLModel):
@@ -133,12 +137,36 @@ class ServiceEventRead(SQLModel):
     description: Optional[str] = None
     cost: float
     next_due_date: Optional[datetime] = None
+    next_due_odometer: Optional[int] = None
+    done: bool = False
 
-# --- Auth ---
+# Notification model for pending notifications
+class Notification(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    vehicle_id: Optional[int] = None
+    service_id: Optional[int] = None
+    type: str  # 'service_date' | 'service_odometer'
+    message: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    due_date: Optional[datetime] = None
+    read: bool = Field(default=False)
+
+class NotificationRead(SQLModel):
+    id: int
+    user_id: int
+    vehicle_id: Optional[int] = None
+    service_id: Optional[int] = None
+    type: str
+    message: str
+    created_at: datetime
+    due_date: Optional[datetime] = None
+    read: bool
+
+# --- Auth DTOs expected by main.py ---
 class UserLogin(SQLModel):
     username: str
     password: str
-
 
 class Token(SQLModel):
     access_token: str

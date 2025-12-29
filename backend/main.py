@@ -7,15 +7,18 @@ from sqlmodel import Session, select
 from typing import List
 from datetime import timedelta, datetime as _datetime
 from sqlalchemy import func
-from db import init_db, get_session
+from db import init_db, get_session, engine
+from sqlalchemy.exc import SQLAlchemyError
 import os
-from models import User, Vehicle, FuelEntry, ServiceEvent, UserCreate, UserRead, Token, FuelEntryCreate, ServiceEventCreate, UserLogin, VehicleCreate, VehicleRead
+from models import User, Vehicle, FuelEntry, ServiceEvent, UserCreate, UserRead, Token, FuelEntryCreate, ServiceEventCreate, UserLogin, VehicleCreate, VehicleRead, Notification
 from auth import hash_password, verify_password, create_access_token, get_current_user
 import time
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import shutil
 import uuid
+from apscheduler.schedulers.background import BackgroundScheduler
+from sqlmodel import text
 
 # Executor for background DB writes (single worker to serialize writes and avoid SQLite locking)
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -76,8 +79,6 @@ def on_startup():
 
     # Run lightweight migration: add optional columns to vehicle table if missing
     try:
-        from db import engine
-        from sqlmodel import text
         with engine.connect() as conn:
             res = conn.execute(text("PRAGMA table_info('vehicle')")).all()
             existing_cols = [r[1] for r in res]
@@ -113,6 +114,38 @@ def on_startup():
                     print('[MIGRATE] Column fuelentry.receipt_photo already present')
             except Exception as e:
                 print(f"[MIGRATE] Failed to check/add fuelentry.receipt_photo: {e}")
+
+            # Ensure serviceevent has new columns
+            try:
+                res3 = conn.execute(text("PRAGMA table_info('serviceevent')")).all()
+                se_cols = [r[1] for r in res3]
+                if 'next_due_odometer' not in se_cols:
+                    print('[MIGRATE] Adding column serviceevent.next_due_odometer')
+                    try:
+                        conn.execute(text("ALTER TABLE serviceevent ADD COLUMN next_due_odometer INTEGER;"))
+                    except Exception as e:
+                        print(f"[MIGRATE] Failed to add next_due_odometer: {e}")
+                if 'done' not in se_cols:
+                    print('[MIGRATE] Adding column serviceevent.done')
+                    try:
+                        conn.execute(text("ALTER TABLE serviceevent ADD COLUMN done BOOLEAN DEFAULT 0;"))
+                    except Exception as e:
+                        print(f"[MIGRATE] Failed to add done: {e}")
+            except Exception as e:
+                print(f"[MIGRATE] Failed to check/add serviceevent columns: {e}")
+
+            # Ensure notifications table exists
+            try:
+                resn = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='notification';")).all()
+                if not resn:
+                    print('[MIGRATE] Creating table notification')
+                    try:
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS notification (id INTEGER PRIMARY KEY, user_id INTEGER, vehicle_id INTEGER, service_id INTEGER, type TEXT, message TEXT, created_at TEXT, due_date TEXT, read BOOLEAN DEFAULT 0);") )
+                    except Exception as e:
+                        print(f"[MIGRATE] Failed to create notification table: {e}")
+            except Exception as e:
+                print(f"[MIGRATE] Failed to ensure notification table: {e}")
+
     except Exception as e:
         # Migration should not prevent app startup; log and continue
         print(f"[MIGRATE] Migration check failed: {e}")
@@ -596,6 +629,8 @@ def create_service_event(
         description=event.description,
         cost=cost_val,
         next_due_date=event.next_due_date,
+        next_due_odometer=getattr(event, 'next_due_odometer', None),
+        done=bool(getattr(event, 'done', False)),
     )
 
     try:
@@ -674,6 +709,8 @@ def update_service_event(
             description=payload.description,
             cost=cost_val,
             next_due_date=next_due,
+            next_due_odometer=payload.get('next_due_odometer', None),
+            done=bool(payload.get('done', False)),
         )
         try:
             session.add(new_event)
@@ -705,6 +742,8 @@ def update_service_event(
     db_event.cost = cost_val
     db_event.date = date_val
     db_event.next_due_date = next_due
+    db_event.next_due_odometer = getattr(payload, 'next_due_odometer', None)
+    db_event.done = bool(getattr(payload, 'done', False))
 
     try:
         session.add(db_event)
@@ -878,6 +917,8 @@ def list_service_events(
             "description": se.description,
             "cost": se.cost,
             "next_due_date": se.next_due_date.isoformat() if se.next_due_date and hasattr(se.next_due_date, 'isoformat') else se.next_due_date,
+            "next_due_odometer": getattr(se, 'next_due_odometer', None),
+            "done": bool(getattr(se, 'done', False)),
         })
 
     return mapped
@@ -983,6 +1024,8 @@ def upsert_service_event(
                 db_event.cost = cost_val
                 db_event.date = date_val
                 db_event.next_due_date = next_due
+                db_event.next_due_odometer = getattr(payload, 'next_due_odometer', None)
+                db_event.done = bool(getattr(payload, 'done', False))
                 session.add(db_event)
                 session.commit()
                 session.refresh(db_event)
@@ -1011,6 +1054,8 @@ def upsert_service_event(
             description=payload.get('description', None),
             cost=cost_val,
             next_due_date=next_due,
+            next_due_odometer=payload.get('next_due_odometer', None),
+            done=bool(payload.get('done', False)),
         )
         session.add(new_event)
         session.commit()
@@ -1315,3 +1360,80 @@ def upload_fuel_with_receipt(
         'notes': new_entry.notes,
         'receipt_photo': new_entry.receipt_photo,
     }
+
+
+# -------------------------------
+# Notifications endpoints
+# -------------------------------
+@app.get('/notifications')
+def list_notifications(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    rows = session.exec(select(Notification).where(Notification.user_id == current_user.id).order_by(Notification.created_at.desc())).all()
+    return rows
+
+@app.post('/notifications/{nid}/mark_read')
+def mark_notification_read(nid: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    n = session.get(Notification, nid)
+    if not n or n.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail='Not found')
+    n.read = True
+    session.add(n)
+    session.commit()
+    session.refresh(n)
+    return n
+
+
+# -------------------------------
+# Scheduler: create pending notifications for upcoming service events
+# -------------------------------
+
+def _get_vehicle_current_odometer(session: Session, vehicle_id: int):
+    # latest fuel entry odometer or vehicle.start_odometer
+    try:
+        latest = session.exec(select(FuelEntry).where(FuelEntry.vehicle_id == vehicle_id).order_by(FuelEntry.date.desc())).first()
+        if latest and getattr(latest, 'odometer', None) is not None:
+            return latest.odometer
+        v = session.get(Vehicle, vehicle_id)
+        return getattr(v, 'start_odometer', None) or 0
+    except Exception:
+        return 0
+
+
+def _create_notifications_job():
+    from datetime import datetime, timedelta
+    with Session(engine) as s:
+        # services not done
+        services = s.exec(select(ServiceEvent).where(ServiceEvent.done == False)).all()
+        for se in services:
+            try:
+                vehicle = s.get(Vehicle, se.vehicle_id)
+                user_id = vehicle.user_id if vehicle else None
+                # by date: if next_due_date within next 7 days
+                if se.next_due_date:
+                    now = datetime.utcnow()
+                    if se.next_due_date <= now + timedelta(days=7) and se.next_due_date >= now:
+                        # create notification if not exists
+                        existing = s.exec(select(Notification).where(Notification.service_id == se.id, Notification.type == 'service_date')).first()
+                        if not existing:
+                            n = Notification(user_id=user_id, vehicle_id=se.vehicle_id, service_id=se.id, type='service_date', message=f'Service "{se.type}" due on {se.next_due_date.date()}', created_at=datetime.utcnow(), due_date=se.next_due_date)
+                            s.add(n)
+                            s.commit()
+                # by odometer
+                if se.next_due_odometer is not None:
+                    current_od = _get_vehicle_current_odometer(s, se.vehicle_id) or 0
+                    if current_od >= se.next_due_odometer:
+                        existing = s.exec(select(Notification).where(Notification.service_id == se.id, Notification.type == 'service_odometer')).first()
+                        if not existing:
+                            n = Notification(user_id=user_id, vehicle_id=se.vehicle_id, service_id=se.id, type='service_odometer', message=f'Service "{se.type}" due by odometer {se.next_due_odometer}', created_at=datetime.utcnow(), due_date=None)
+                            s.add(n)
+                            s.commit()
+            except Exception as e:
+                print(f'[SCHED] Error while processing service id={se.id}: {e}')
+
+# create background scheduler and start it
+_scheduler = BackgroundScheduler()
+_scheduler.add_job(_create_notifications_job, 'interval', minutes=1, id='service_notifications', replace_existing=True)
+try:
+    _scheduler.start()
+    print('[SCHED] Notification scheduler started')
+except Exception as e:
+    print(f'[SCHED] Failed to start scheduler: {e}')

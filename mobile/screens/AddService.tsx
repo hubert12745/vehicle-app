@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, StyleSheet, Alert, Platform, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, StyleSheet, Alert, Platform, TouchableOpacity, Switch } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import api, { updateService, deleteService } from "../api";
 import theme from '../theme';
@@ -18,6 +18,8 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
   const [cost, setCost] = useState("");
   const [date, setDate] = useState(new Date()); // Service date
   const [nextDueDate, setNextDueDate] = useState<Date | null>(null); // Optional next due date
+  const [nextDueOdometer, setNextDueOdometer] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showNextDuePicker, setShowNextDuePicker] = useState(false);
@@ -33,6 +35,12 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
       } catch (e) {}
       try {
         if (existingEntry.next_due_date) setNextDueDate(new Date(existingEntry.next_due_date));
+      } catch (e) {}
+      try {
+        if (existingEntry.next_due_odometer != null) setNextDueOdometer(String(existingEntry.next_due_odometer));
+      } catch (e) {}
+      try {
+        if (existingEntry.done != null) setDone(Boolean(existingEntry.done));
       } catch (e) {}
     }
   }, [existingEntry]);
@@ -52,6 +60,8 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
         cost: parseFloat(cost),
         date: date.toISOString(),
         next_due_date: nextDueDate ? nextDueDate.toISOString() : null,
+        next_due_odometer: nextDueOdometer ? parseInt(nextDueOdometer) : null,
+        done: done,
       };
 
       if (existingEntry && existingEntry.id) {
@@ -112,6 +122,8 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
           setCost("");
           setDate(new Date());
           setNextDueDate(null);
+          setNextDueOdometer(null);
+          setDone(false);
           onServiceAdded(item);
           return;
         }
@@ -205,6 +217,16 @@ export default function AddServiceScreen({ vehicleId, onServiceAdded, existingEn
         {showNextDuePicker && (
           <DateTimePicker value={nextDueDate || new Date()} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleNextDueChange} />
         )}
+
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.labelSmall}>Następny serwis (przebieg, opcjonalnie)</Text>
+          <TextInput style={theme.input} placeholder="km" keyboardType="numeric" value={nextDueOdometer || ''} onChangeText={setNextDueOdometer} />
+        </View>
+
+        <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={[styles.labelSmall, { marginRight: 12 }]}>Oznacz jako zrobione</Text>
+          <Switch value={done} onValueChange={setDone} />
+        </View>
 
         <View style={{ marginTop: 12 }}>
           <TouchableOpacity style={[theme.primaryBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]} onPress={handleAddService} disabled={loading}>
