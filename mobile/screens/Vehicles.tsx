@@ -9,6 +9,7 @@ import ServiceEntriesScreen from "./ServiceEntries";
 import ViewFuel from './ViewFuel';
 import ViewService from './ViewService';
 import ConsumptionChart from './ConsumptionChart';
+import Reports from './Reports';
 import theme from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -41,6 +42,7 @@ export default function VehiclesScreen({
   const [showFuelEntries, setShowFuelEntries] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [showServiceEntries, setShowServiceEntries] = useState(false);
+  const [showReports, setShowReports] = useState<boolean>(false);
 
   // selected fuel entry for edit (passed to RefuelScreen)
   const [selectedFuelToEdit, setSelectedFuelToEdit] = useState<any | null>(null);
@@ -166,6 +168,10 @@ export default function VehiclesScreen({
         setShowAddVehicle(false);
         return true;
       }
+      if (showReports) {
+        setShowReports(false);
+        return true;
+      }
       // nothing to handle here -> allow default behaviour (exit app)
       return false;
     };
@@ -177,7 +183,7 @@ export default function VehiclesScreen({
       };
     }
     return;
-  }, [showRefuel, showAddService, showFuelEntries, showServiceEntries, showAddVehicle, openedFromEntries, openedFromServiceEntries, selectedFuelToEdit, selectedServiceToEdit]);
+  }, [showRefuel, showAddService, showFuelEntries, showServiceEntries, showAddVehicle, showReports, openedFromEntries, openedFromServiceEntries, selectedFuelToEdit, selectedServiceToEdit]);
 
   useEffect(() => {
     // refresh recent lists immediately after edits/adds/deletes
@@ -267,6 +273,10 @@ export default function VehiclesScreen({
           <TouchableOpacity accessibilityLabel="Dodaj pojazd" style={{ paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={openAddVehicleFromMenu}>
             <Ionicons name="car-outline" size={18} color="#0B2545" style={{ marginRight: 8 }} />
             <Text style={{ fontWeight: '600' }}>Dodaj pojazd</Text>
+          </TouchableOpacity>
+          <TouchableOpacity accessibilityLabel="Raporty" style={{ paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={() => { setShowHeaderMenu(false); setShowReports(true); }}>
+            <Ionicons name="bar-chart-outline" size={18} color="#0B2545" style={{ marginRight: 8 }} />
+            <Text style={{ fontWeight: '600' }}>Raporty</Text>
           </TouchableOpacity>
           <TouchableOpacity accessibilityLabel="Wyloguj" style={{ paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={() => { setShowHeaderMenu(false); onLogout(); }}>
             <Ionicons name="log-out-outline" size={18} color="#FF3B30" style={{ marginRight: 8 }} />
@@ -599,6 +609,20 @@ export default function VehiclesScreen({
           entry={viewServiceEntry}
           onClose={() => setViewServiceEntry(null)}
         />
+      )}
+
+      {/* Reports modal-like screen */}
+      {showReports && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#fff', zIndex: 200 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderColor: '#eee' }}>
+            <Text style={{ fontSize: 18, fontWeight: '600' }}>Raporty</Text>
+            <TouchableOpacity onPress={() => setShowReports(false)} style={{ padding: 8 }}>
+              <Text style={{ color: '#2e86de' }}>Zamknij</Text>
+            </TouchableOpacity>
+          </View>
+          {/* @ts-ignore */}
+          <Reports />
+        </View>
       )}
     </View>
   );

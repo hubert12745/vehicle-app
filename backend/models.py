@@ -41,6 +41,7 @@ class FuelEntry(SQLModel, table=True):
     price_per_liter: float
     total_cost: float
     notes: Optional[str] = None
+    receipt_photo: Optional[str] = None
 
     vehicle: Vehicle = Relationship(back_populates="fuel_entries")
 
@@ -112,6 +113,7 @@ class FuelEntryRead(SQLModel):
     price_per_liter: float
     total_cost: float
     notes: Optional[str] = None
+    receipt_photo: Optional[str] = None
 
 
 # --- ServiceEvent ---

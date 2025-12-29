@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Alert, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, StyleSheet, Image, Linking } from 'react-native';
 import theme from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { deleteFuel } from '../api';
+import api from '../api';
 
 export default function ViewFuel({ entry, onEdit, onDelete, onClose }: { entry: any, onEdit: (e:any)=>void, onDelete: (id:number)=>void, onClose: ()=>void }) {
   const handleDelete = async () => {
@@ -40,6 +41,28 @@ export default function ViewFuel({ entry, onEdit, onDelete, onClose }: { entry: 
           <Text style={styles.row}><Text style={styles.label}>Cena/l: </Text>{entry.price_per_liter.toFixed(2)} PLN</Text>
           <Text style={styles.row}><Text style={styles.label}>Całkowity koszt: </Text>{entry.total_cost.toFixed(2)} PLN</Text>
           {entry.notes ? <Text style={styles.row}><Text style={styles.label}>Notatki: </Text>{entry.notes}</Text> : null}
+
+          {entry.receipt_photo ? (
+            <View style={{ marginTop: 12 }}>
+              <Text style={{ fontWeight: '700', marginBottom: 6 }}>Paragon:</Text>
+              <TouchableOpacity onPress={async () => {
+                try {
+                  const base = (api.defaults.baseURL || '').replace(/\/$/, '');
+                  const rel = (entry.receipt_photo || '').replace(/^\//, '');
+                  const url = rel.startsWith('http') ? rel : `${base}/${rel}`;
+                  console.log('Opening receipt URL', url);
+                  await Linking.openURL(url);
+                } catch (e) {
+                  console.warn('Failed to open receipt', e);
+                  Alert.alert('Błąd', 'Nie można otworzyć zdjęcia paragonu');
+                }
+              }} style={{ alignItems: 'center' }}>
+                <Image source={{ uri: (entry.receipt_photo && entry.receipt_photo.startsWith('http')) ? entry.receipt_photo : `${(api.defaults.baseURL||'').replace(/\/$/, '')}/${entry.receipt_photo.replace(/^\//,'')}` }} style={{ width: 250, height: 180, borderRadius: 8 }} resizeMode="contain" />
+                <Text style={{ color: '#0A84FF', marginTop: 8 }}>Pokaż w pełnym rozmiarze</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
         </View>
 
         <View style={{ marginTop: 14, flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -69,4 +92,3 @@ const styles = StyleSheet.create({
   row: { marginTop: 8, color: '#2c3e50' },
   label: { fontWeight: '700' }
 });
-

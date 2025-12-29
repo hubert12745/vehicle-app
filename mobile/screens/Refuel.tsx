@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, StyleSheet, Alert, Platform, TouchableOpacity, LayoutAnimation } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import api, { deleteFuel } from "../api";
+import api, { deleteFuel, uploadFuelWithReceipt } from "../api";
 import theme from '../theme';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { Image } from 'react-native';
 
 interface RefuelScreenProps {
   vehicleId: number;
@@ -20,6 +22,8 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
   const [date, setDate] = useState(new Date()); // Refueling date
   const [showDatePicker, setShowDatePicker] = useState(false); // Control date picker visibility
   const [loading, setLoading] = useState(false);
+  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+  const [receiptLocalName, setReceiptLocalName] = useState<string | null>(null);
 
   // If editing, prefill fields
   useEffect(() => {
@@ -78,7 +82,33 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
           if (existingEntry) {
             res = await api.put(`/fuel/${existingEntry.id}`, payload);
           } else {
-            res = await api.post("/fuel/", payload);
+            if (receiptUri) {
+              // prepare FormData
+              const form = new FormData();
+              form.append('vehicle_id', String(vehicleId));
+              form.append('odometer', String(payload.odometer));
+              form.append('liters', String(payload.liters));
+              form.append('price_per_liter', String(payload.price_per_liter));
+              form.append('total_cost', String(payload.total_cost));
+              form.append('date', String(payload.date));
+              if (payload.total_cost) form.append('total_cost', String(payload.total_cost));
+              if (payload.date) form.append('date', String(payload.date));
+              if (payload.notes) form.append('notes', String(payload.notes));
+
+              // On Expo, file needs to be { uri, name, type }
+              const uriParts = receiptUri.split('.');
+              const fileExt = uriParts[uriParts.length - 1];
+              const mimeType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+              form.append('receipt', {
+                uri: receiptUri,
+                name: receiptLocalName || `receipt.${fileExt}`,
+                type: mimeType,
+              } as any);
+
+              res = await uploadFuelWithReceipt(form);
+            } else {
+              res = await api.post("/fuel/", payload);
+            }
           }
 
           // success handling
@@ -112,6 +142,8 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
           setPricePerLiter("");
           setTotalCost("");
           setDate(new Date());
+          setReceiptUri(null);
+          setReceiptLocalName(null);
           // If server returned created/updated object, pass it as patch so UI can update immediately
           const returned = res?.data;
           if (returned) {
@@ -208,6 +240,49 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
     );
   };
 
+  const pickImage = async () => {
+    try {
+      // Request permission (works on native). For web this will be a no-op.
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('[Refuel] ImagePicker permission:', permission);
+      if (!permission.granted) {
+        Alert.alert('Brak uprawnień', 'Aplikacja potrzebuje dostępu do zdjęć, aby dodać paragon.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, base64: false });
+      console.log('[Refuel] ImagePicker result:', result);
+
+      // Handle both legacy and new response shapes
+      // New: { canceled: boolean, assets: [{ uri, ... }] }
+      // Old: { cancelled: boolean, uri: 'file://...' }
+      let uri: string | undefined | null = null;
+      if ((result as any).canceled === false && Array.isArray((result as any).assets) && (result as any).assets.length > 0) {
+        uri = (result as any).assets[0].uri;
+      } else if ((result as any).cancelled === false && (result as any).uri) {
+        uri = (result as any).uri;
+      } else if ((result as any).uri) {
+        // fallback if API returned uri directly
+        uri = (result as any).uri;
+      }
+
+      if (!uri) {
+        // User cancelled or no uri found
+        console.log('[Refuel] No image selected or uri missing');
+        return; // do nothing, treating as user-cancel
+      }
+
+      setReceiptUri(uri);
+      // try to extract filename
+      const parts = uri.split('/');
+      setReceiptLocalName(parts[parts.length - 1]);
+    } catch (e) {
+      console.warn('Image pick failed', e);
+      // provide more helpful error message
+      Alert.alert('Błąd', 'Nie udało się wybrać zdjęcia — sprawdź uprawnienia aplikacji i spróbuj ponownie.');
+    }
+  };
+
   return (
     <View style={theme.page}>
       <Text style={theme.headerTitle}>{existingEntry ? 'Edytuj tankowanie' : 'Dodaj tankowanie'}</Text>
@@ -245,6 +320,19 @@ export default function RefuelScreen({ vehicleId, onRefuelAdded, existingEntry, 
         {showDatePicker && (
           <DateTimePicker value={date} mode="date" display={Platform.OS === "ios" ? "inline" : "default"} onChange={handleDateChange} />
         )}
+
+        <View style={{ marginTop: 12 }}>
+          <Text style={styles.labelSmall}>Paragon (opcjonalnie)</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity style={[theme.ghostBtn, { paddingVertical: 8, paddingHorizontal: 12 }]} onPress={pickImage}>
+              <Ionicons name="image-outline" size={16} color={theme.headerTitle.color || '#34495e'} />
+              <Text style={[theme.ghostBtnText, { marginLeft: 8 }]}>{receiptUri ? 'Zmień zdjęcie' : 'Wybierz zdjęcie'}</Text>
+            </TouchableOpacity>
+            {receiptUri ? (
+              <Image source={{ uri: receiptUri }} style={{ width: 64, height: 48, marginLeft: 12, borderRadius: 6 }} />
+            ) : null}
+          </View>
+        </View>
 
         <View style={{ marginTop: 16 }}>
           <TouchableOpacity style={theme.primaryBtn} onPress={async () => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); await handleSave(); }} disabled={loading}>

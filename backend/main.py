@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Response, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 from typing import List
 from datetime import timedelta, datetime as _datetime
@@ -13,6 +14,8 @@ from auth import hash_password, verify_password, create_access_token, get_curren
 import time
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import shutil
+import uuid
 
 # Executor for background DB writes (single worker to serialize writes and avoid SQLite locking)
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -61,6 +64,16 @@ def on_startup():
     # Ensure tables exist
     init_db()
 
+    # Ensure uploads directory exists
+    try:
+        uploads_dir = os.path.join(os.path.dirname(__file__), '..', 'uploads')
+        uploads_dir = os.path.abspath(uploads_dir)
+        if not os.path.exists(uploads_dir):
+            os.makedirs(uploads_dir, exist_ok=True)
+            print(f"[STARTUP] Created uploads directory at {uploads_dir}")
+    except Exception as e:
+        print(f"[STARTUP] Failed to ensure uploads dir: {e}")
+
     # Run lightweight migration: add optional columns to vehicle table if missing
     try:
         from db import engine
@@ -85,9 +98,32 @@ def on_startup():
                     print(f"[MIGRATE] Failed to add start_odometer: {e}")
             else:
                 print('[MIGRATE] Column vehicle.start_odometer already present')
+
+            # Ensure fuelentry.receipt_photo exists
+            try:
+                res2 = conn.execute(text("PRAGMA table_info('fuelentry')")).all()
+                fuel_cols = [r[1] for r in res2]
+                if 'receipt_photo' not in fuel_cols:
+                    print('[MIGRATE] Adding column fuelentry.receipt_photo')
+                    try:
+                        conn.execute(text("ALTER TABLE fuelentry ADD COLUMN receipt_photo TEXT;"))
+                    except Exception as e:
+                        print(f"[MIGRATE] Failed to add receipt_photo: {e}")
+                else:
+                    print('[MIGRATE] Column fuelentry.receipt_photo already present')
+            except Exception as e:
+                print(f"[MIGRATE] Failed to check/add fuelentry.receipt_photo: {e}")
     except Exception as e:
         # Migration should not prevent app startup; log and continue
         print(f"[MIGRATE] Migration check failed: {e}")
+
+# Mount uploads directory for static serving
+try:
+    uploads_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads'))
+    app.mount("/uploads", StaticFiles(directory=uploads_path), name="uploads")
+    print(f"[STARTUP] Mounted uploads at /uploads from {uploads_path}")
+except Exception as e:
+    print(f"[STARTUP] Failed to mount uploads: {e}")
 
 
 @app.get("/")
@@ -995,3 +1031,287 @@ def upsert_service_event(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f'Internal server error: {e}')
+
+# -------------------------------
+# 📊 Reports
+# -------------------------------
+@app.get("/reports/monthly")
+def monthly_report(
+    vehicle_id: int,
+    year: int,
+    month: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return monthly report JSON for a vehicle: total cost, total liters, distance, avg consumption, and daily breakdown.
+
+    Query params: vehicle_id, year, month
+    """
+    # validate vehicle ownership
+    vehicle = session.get(Vehicle, vehicle_id)
+    if not vehicle or vehicle.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tego pojazdu")
+
+    # compute date range
+    try:
+        from datetime import datetime, timedelta
+        start = datetime(year=year, month=month, day=1)
+        # compute first day of next month
+        if month == 12:
+            next_month = datetime(year=year + 1, month=1, day=1)
+        else:
+            next_month = datetime(year=year, month=month + 1, day=1)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Nieprawidłowy rok/miesiąc")
+
+    # fetch fuel entries in range (inclusive start, exclusive next_month)
+    rows = session.exec(
+        select(FuelEntry).where(
+            FuelEntry.vehicle_id == vehicle_id,
+            FuelEntry.date >= start,
+            FuelEntry.date < next_month,
+        ).order_by(FuelEntry.date)
+    ).all()
+
+    if not rows:
+        return {
+            "vehicle_id": vehicle_id,
+            "year": year,
+            "month": month,
+            "total_cost": 0.0,
+            "total_liters": 0.0,
+            "distance": 0,
+            "avg_consumption": None,
+            "entries": [],
+        }
+
+    # For consumption we need distance: use odometer min and max across entries within month
+    odometers = [r.odometer for r in rows if isinstance(r.odometer, (int, float))]
+    if len(odometers) >= 2:
+        distance = max(odometers) - min(odometers)
+    else:
+        distance = 0
+
+    total_liters = sum([r.liters for r in rows if isinstance(r.liters, (int, float))])
+    total_cost = sum([r.total_cost if getattr(r, 'total_cost', None) is not None else 0.0 for r in rows])
+
+    avg_consumption = None
+    if distance > 0:
+        try:
+            avg_consumption = round((total_liters / distance) * 100, 2)
+        except Exception:
+            avg_consumption = None
+
+    # daily breakdown for chart: group by day
+    daily = {}
+    for r in rows:
+        day = r.date.date().isoformat()
+        if day not in daily:
+            daily[day] = {"liters": 0.0, "cost": 0.0, "count": 0}
+        daily[day]["liters"] += float(r.liters)
+        daily[day]["cost"] += float(r.total_cost if getattr(r, 'total_cost', None) is not None else 0.0)
+        daily[day]["count"] += 1
+
+    # convert to sorted list
+    daily_list = []
+    for day in sorted(daily.keys()):
+        daily_list.append({"day": day, "liters": round(daily[day]["liters"], 3), "cost": round(daily[day]["cost"], 2)})
+
+    return {
+        "vehicle_id": vehicle_id,
+        "year": year,
+        "month": month,
+        "total_cost": round(total_cost, 2),
+        "total_liters": round(total_liters, 3),
+        "distance": distance,
+        "avg_consumption": avg_consumption,
+        "entries": [
+            {
+                "id": r.id,
+                "date": r.date.isoformat() if hasattr(r.date, 'isoformat') else r.date,
+                "odometer": r.odometer,
+                "liters": r.liters,
+                "price_per_liter": r.price_per_liter,
+                "total_cost": r.total_cost,
+                "notes": getattr(r, 'notes', None),
+            }
+            for r in rows
+        ],
+        "daily": daily_list,
+    }
+
+
+@app.get("/reports/monthly/csv")
+def monthly_report_csv(
+    vehicle_id: int,
+    year: int,
+    month: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Return a CSV attachment with fuel entries for the requested month and summary as header rows."""
+    # reuse logic: call monthly_report to get data
+    data = monthly_report(vehicle_id=vehicle_id, year=year, month=month, session=session, current_user=current_user)
+
+    # build CSV content
+    import io, csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # summary rows
+    writer.writerow([f"Vehicle ID", data.get('vehicle_id')])
+    writer.writerow([f"Year", data.get('year')])
+    writer.writerow([f"Month", data.get('month')])
+    writer.writerow([f"Total Cost", data.get('total_cost')])
+    writer.writerow([f"Total Liters", data.get('total_liters')])
+    writer.writerow([f"Distance", data.get('distance')])
+    writer.writerow([f"Avg Consumption (l/100km)", data.get('avg_consumption')])
+    writer.writerow([])
+
+    # header for entries
+    writer.writerow(["id", "date", "odometer", "liters", "price_per_liter", "total_cost", "notes"])
+
+    # Ensure entries are sorted by date (ascending). Parse ISO dates robustly.
+    def _parse_date_iso(s):
+        from datetime import datetime
+        try:
+            if s is None:
+                return datetime.min
+            if isinstance(s, str):
+                # handle possible timezone 'Z' or offsets
+                try:
+                    return datetime.fromisoformat(s)
+                except Exception:
+                    # strip Z and try
+                    if s.endswith('Z'):
+                        try:
+                            return datetime.fromisoformat(s[:-1])
+                        except Exception:
+                            return datetime.min
+                    return datetime.min
+            # if already a datetime object
+            return s
+        except Exception:
+            return datetime.min
+
+    entries = data.get('entries', []) or []
+    try:
+        entries_sorted = sorted(entries, key=lambda e: _parse_date_iso(e.get('date')))
+    except Exception:
+        entries_sorted = entries
+
+    for e in entries_sorted:
+        writer.writerow([e.get('id'), e.get('date'), e.get('odometer'), e.get('liters'), e.get('price_per_liter'), e.get('total_cost'), e.get('notes')])
+
+    csv_text = output.getvalue()
+    output.close()
+
+    from fastapi.responses import Response
+    filename = f"report_vehicle_{vehicle_id}_{year}_{str(month).zfill(2)}.csv"
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{filename}\"",
+        "Content-Type": "text/csv; charset=utf-8",
+    }
+    return Response(content=csv_text, media_type="text/csv", headers=headers)
+
+@app.post('/fuel/upload', status_code=201)
+def upload_fuel_with_receipt(
+    vehicle_id: int = Form(...),
+    odometer: int = Form(...),
+    liters: float = Form(...),
+    price_per_liter: float = Form(...),
+    total_cost: float = Form(None),
+    date: str = Form(None),
+    notes: str = Form(None),
+    receipt: UploadFile = File(None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a fuel entry from multipart/form-data and optionally upload a receipt image.
+    Fields: vehicle_id, odometer, liters, price_per_liter, total_cost (optional), date (ISO str optional), notes (optional), receipt (file optional)
+    """
+    # Validate ownership
+    vehicle = session.get(Vehicle, int(vehicle_id))
+    if not vehicle or vehicle.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail='Nie masz dostępu do tego pojazdu')
+
+    # parse numbers
+    try:
+        odometer_v = int(odometer)
+        liters_v = float(str(liters).replace(',', '.'))
+        price_v = float(str(price_per_liter).replace(',', '.'))
+    except Exception:
+        raise HTTPException(status_code=400, detail='Nieprawidłowe wartości liczbowe')
+
+    # parse date if provided
+    if date:
+        try:
+            from datetime import datetime
+            date_val = datetime.fromisoformat(date)
+        except Exception:
+            date_val = None
+    else:
+        date_val = None
+
+    total_cost_v = None
+    if total_cost is not None and total_cost != '':
+        try:
+            total_cost_v = float(str(total_cost).replace(',', '.'))
+        except Exception:
+            total_cost_v = None
+    if total_cost_v is None:
+        total_cost_v = round(liters_v * price_v, 2)
+
+    # handle file
+    receipt_relative = None
+    if receipt is not None:
+        try:
+            # Ensure uploads dir
+            uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads'))
+            ext = os.path.splitext(receipt.filename)[1] if receipt.filename else ''
+            safe_name = f"receipt_{current_user.id}_{int(time.time())}_{uuid.uuid4().hex}{ext}"
+            dest_path = os.path.join(uploads_dir, safe_name)
+            # write file to disk
+            with open(dest_path, 'wb') as out_f:
+                shutil.copyfileobj(receipt.file, out_f)
+            # store relative path (relative to project root)
+            receipt_relative = os.path.join('uploads', safe_name).replace('\\', '/')
+        except Exception as e:
+            print(f"[UPLOAD] Failed to save uploaded receipt: {e}")
+            raise HTTPException(status_code=500, detail='Nie udało się zapisać pliku')
+
+    # create FuelEntry
+    from datetime import datetime
+    if date_val is None:
+        date_val = datetime.utcnow()
+
+    new_entry = FuelEntry(
+        vehicle_id=int(vehicle_id),
+        date=date_val,
+        odometer=odometer_v,
+        liters=liters_v,
+        price_per_liter=price_v,
+        total_cost=total_cost_v,
+        notes=notes,
+        receipt_photo=receipt_relative,
+    )
+    try:
+        session.add(new_entry)
+        session.commit()
+        session.refresh(new_entry)
+    except SQLAlchemyError as e:
+        session.rollback()
+        print(f"[DB] Failed to create fuel entry: {e}")
+        raise HTTPException(status_code=500, detail='Błąd zapisu do bazy')
+
+    return {
+        'id': new_entry.id,
+        'vehicle_id': new_entry.vehicle_id,
+        'date': new_entry.date.isoformat() if hasattr(new_entry.date, 'isoformat') else new_entry.date,
+        'odometer': new_entry.odometer,
+        'liters': new_entry.liters,
+        'price_per_liter': new_entry.price_per_liter,
+        'total_cost': new_entry.total_cost,
+        'notes': new_entry.notes,
+        'receipt_photo': new_entry.receipt_photo,
+    }

@@ -109,4 +109,14 @@ export async function deleteFuel(id: number) {
   }
 }
 
+export async function uploadFuelWithReceipt(formData: FormData) {
+  // axios will set the proper multipart boundary if we let it handle headers
+  return api.post('/fuel/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    timeout: 20000,
+  });
+}
+
 export default api;
