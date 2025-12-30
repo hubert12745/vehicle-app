@@ -12,6 +12,7 @@ class User(SQLModel, table=True):
     email: str = Field(index=True, unique=True)
     password_hash: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    opt_out_ranking: bool = Field(default=False)
 
     vehicles: List["Vehicle"] = Relationship(back_populates="owner")
 

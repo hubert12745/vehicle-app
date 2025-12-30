@@ -146,6 +146,21 @@ def on_startup():
             except Exception as e:
                 print(f"[MIGRATE] Failed to ensure notification table: {e}")
 
+            # Ensure user.opt_out_ranking exists
+            try:
+                resu = conn.execute(text("PRAGMA table_info('user')")).all()
+                user_cols = [r[1] for r in resu]
+                if 'opt_out_ranking' not in user_cols:
+                    print('[MIGRATE] Adding column user.opt_out_ranking')
+                    try:
+                        conn.execute(text("ALTER TABLE user ADD COLUMN opt_out_ranking BOOLEAN DEFAULT 0;"))
+                    except Exception as e:
+                        print(f"[MIGRATE] Failed to add opt_out_ranking: {e}")
+                else:
+                    print('[MIGRATE] Column user.opt_out_ranking already present')
+            except Exception as e:
+                print(f"[MIGRATE] Failed to check/add user.opt_out_ranking: {e}")
+
     except Exception as e:
         # Migration should not prevent app startup; log and continue
         print(f"[MIGRATE] Migration check failed: {e}")
@@ -1437,3 +1452,124 @@ try:
     print('[SCHED] Notification scheduler started')
 except Exception as e:
     print(f'[SCHED] Failed to start scheduler: {e}')
+
+# -------------------------------
+# Ranking endpoints (anonymous TOP10)
+# -------------------------------
+from typing import Dict
+
+@app.get('/ranking/top10')
+@app.get('/ranking/top10/')
+def ranking_top10(metric: str = 'cost_per_km', period: str = 'last_6_months', session: Session = Depends(get_session)):
+    """Return anonymous TOP10 ranking for the chosen metric.
+    metric: 'cost_per_km' or 'avg_consumption'
+    period: 'last_3_months'|'last_6_months'|'last_12_months'
+    Returns a list of {position, value, percentile}
+    Never returns user identifiers or emails.
+    """
+    # validate metric
+    if metric not in ('cost_per_km', 'avg_consumption'):
+        raise HTTPException(status_code=400, detail='Invalid metric')
+
+    # determine date threshold for period
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    if period == 'last_3_months':
+        threshold = now - timedelta(days=90)
+    elif period == 'last_6_months':
+        threshold = now - timedelta(days=180)
+    elif period == 'last_12_months':
+        threshold = now - timedelta(days=365)
+    else:
+        raise HTTPException(status_code=400, detail='Invalid period')
+
+    # For each user (excluding opt-out), compute per-user aggregate value across their vehicles
+    # We compute either total_cost / total_distance (cost_per_km) or avg_consumption (liters/100km)
+    # Approach: fetch users who have fuel entries in timeframe and are not opted out
+    # Steps:
+    # 1) get user ids with entries
+    rows = session.exec(
+        select(User.id).where(User.opt_out_ranking == False)
+    ).all()
+    user_ids = [r for r in rows]
+
+    user_stats = []
+    for uid in user_ids:
+        # fetch vehicles of user
+        vehicles = session.exec(select(Vehicle.id).where(Vehicle.user_id == uid)).all()
+        if not vehicles:
+            continue
+        total_cost = 0.0
+        total_liters = 0.0
+        min_odometer = None
+        max_odometer = None
+        for vid in vehicles:
+            entries = session.exec(
+                select(FuelEntry).where(FuelEntry.vehicle_id == vid, FuelEntry.date >= threshold).order_by(FuelEntry.date)
+            ).all()
+            if not entries:
+                continue
+            # aggregate per vehicle
+            liters = sum([e.liters for e in entries if getattr(e, 'liters', None) is not None])
+            cost = sum([e.total_cost if getattr(e, 'total_cost', None) is not None else 0.0 for e in entries])
+            odoms = [e.odometer for e in entries if getattr(e, 'odometer', None) is not None]
+            if odoms:
+                vmin = min(odoms)
+                vmax = max(odoms)
+                if min_odometer is None or vmin < min_odometer:
+                    min_odometer = vmin
+                if max_odometer is None or vmax > max_odometer:
+                    max_odometer = vmax
+            total_cost += cost
+            total_liters += liters
+        # compute stats for user
+        distance = (max_odometer - min_odometer) if (min_odometer is not None and max_odometer is not None) else 0
+        if metric == 'cost_per_km':
+            if distance <= 0:
+                continue
+            value = round(total_cost / distance, 4)
+        else:  # avg_consumption
+            if distance <= 0:
+                continue
+            value = round((total_liters / distance) * 100, 3)
+        user_stats.append({'user_id': uid, 'value': value})
+
+    if not user_stats:
+        return {'ranking': []}
+
+    # sort ascending for both metrics (lower is better)
+    user_stats.sort(key=lambda x: x['value'])
+
+    # compute percentiles and anonymize
+    total = len(user_stats)
+    out = []
+    for idx, item in enumerate(user_stats[:10]):
+        # percentile: percentage of users with worse (higher) value
+        better_count = idx  # sorted ascending
+        percentile = round(100.0 * (1 - (idx / max(1, total - 1))), 2) if total > 1 else 100.0
+        out.append({'position': idx + 1, 'value': item['value'], 'percentile': percentile})
+
+    return {'ranking': out, 'total_users_considered': total}
+
+
+@app.post('/ranking/optout')
+def ranking_optout(payload: Dict[str, bool], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    """Set opt-out preference for the current user: payload {"opt_out": true/false}"""
+    opt = payload.get('opt_out')
+    if opt is None:
+        raise HTTPException(status_code=400, detail='opt_out field required')
+    current_user.opt_out_ranking = bool(opt)
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    return {'opt_out_ranking': current_user.opt_out_ranking}
+
+@app.get('/debug/routes')
+def debug_routes():
+    """Return list of registered route paths for quick debugging (useful to check missing endpoints)."""
+    try:
+        paths = [r.path for r in app.routes]
+        return {"routes": paths}
+    except Exception as e:
+        return {"error": str(e)}
+
