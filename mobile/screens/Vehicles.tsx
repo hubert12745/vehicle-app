@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, BackHandler, Platform, LayoutAnimation, UIManager, Modal, ScrollView } from "react-native";
-import api from "../api";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, BackHandler, Platform, LayoutAnimation, UIManager, Modal, ScrollView, Alert } from "react-native";
+import api, { triggerNotifications } from "../api";
 import AddVehicleScreen from "./AddVehicle";
 import RefuelScreen from "./Refuel";
 import FuelEntriesScreen from "./FuelEntries";
@@ -291,6 +291,19 @@ export default function VehiclesScreen({
           <TouchableOpacity accessibilityLabel="Wyloguj" style={{ paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={() => { setShowHeaderMenu(false); onLogout(); }}>
             <Ionicons name="log-out-outline" size={18} color="#FF3B30" style={{ marginRight: 8 }} />
             <Text style={{ fontWeight: '600', color: '#FF3B30' }}>Wyloguj</Text>
+          </TouchableOpacity>
+          <TouchableOpacity accessibilityLabel="Wywołaj powiadomienia (debug)" style={{ paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }} onPress={async () => {
+            setShowHeaderMenu(false);
+            try {
+              const res = await triggerNotifications();
+              Alert.alert('Trigger notifications', JSON.stringify(res?.data || res, null, 2));
+            } catch (e:any) {
+              console.warn('Trigger notifications failed', e);
+              Alert.alert('Błąd', 'Nie udało się wywołać trigger_notifications');
+            }
+          }}>
+            <Ionicons name="notifications-outline" size={18} color="#0B2545" style={{ marginRight: 8 }} />
+            <Text style={{ fontWeight: '600' }}>Wywołaj powiadomienia (debug)</Text>
           </TouchableOpacity>
         </View>
       )}

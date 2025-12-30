@@ -10,7 +10,10 @@ from sqlalchemy import func
 from db import init_db, get_session, engine
 from sqlalchemy.exc import SQLAlchemyError
 import os
+import json
+# `requests` is imported lazily inside _send_push_messages to avoid hard dependency at import time
 from models import User, Vehicle, FuelEntry, ServiceEvent, UserCreate, UserRead, Token, FuelEntryCreate, ServiceEventCreate, UserLogin, VehicleCreate, VehicleRead, Notification
+from models import Device, DeviceCreate
 from auth import hash_password, verify_password, create_access_token, get_current_user
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -145,6 +148,18 @@ def on_startup():
                         print(f"[MIGRATE] Failed to create notification table: {e}")
             except Exception as e:
                 print(f"[MIGRATE] Failed to ensure notification table: {e}")
+
+            # Ensure device table exists
+            try:
+                resd = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='device';")).all()
+                if not resd:
+                    print('[MIGRATE] Creating table device')
+                    try:
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS device (id INTEGER PRIMARY KEY, user_id INTEGER, token TEXT, platform TEXT, created_at TEXT);") )
+                    except Exception as e:
+                        print(f"[MIGRATE] Failed to create device table: {e}")
+            except Exception as e:
+                print(f"[MIGRATE] Failed to ensure device table: {e}")
 
             # Ensure user.opt_out_ranking exists
             try:
@@ -1413,163 +1428,207 @@ def _get_vehicle_current_odometer(session: Session, vehicle_id: int):
         return 0
 
 
+# helper: send push via Expo Push API (preferred) or FCM
+def _send_push_messages(messages: list):
+    """messages: list of dicts formatted for Expo push API: {to, title, body, data}
+    If any 'to' looks like an Expo token (starts with 'ExponentPushToken' or 'ExpoPushToken'), use Expo Push API.
+    Otherwise if FCM key present, use FCM.
+    """
+    try:
+        import requests
+    except Exception:
+        print('[PUSH] requests package not installed; cannot send push notifications. Install requests in backend venv to enable push sending.')
+        return
+
+    expo_token_env = os.environ.get('EXPO_PUSH_KEY') or os.environ.get('EXPO_PUSH_TOKEN')
+    fcm_key = os.environ.get('FCM_SERVER_KEY') or os.environ.get('FCM_KEY')
+
+    # Detect if any destination looks like an Expo token
+    def _looks_like_expo_token(t: str) -> bool:
+        if not t or not isinstance(t, str):
+            return False
+        return t.startswith('ExponentPushToken') or t.startswith('ExpoPushToken')
+
+    any_expo = any(_looks_like_expo_token(m.get('to')) for m in messages)
+
+    # If there are expo tokens, send via Expo Push API
+    if any_expo:
+        url = 'https://exp.host/--/api/v2/push/send'
+        headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+        if expo_token_env:
+            headers['Expo-Token'] = expo_token_env
+        # Chunk into max 100 per Expo requirements
+        for chunk_start in range(0, len(messages), 100):
+            chunk = messages[chunk_start:chunk_start+100]
+            try:
+                payload = []
+                # Only include messages that look like expo tokens in this chunk
+                for msg in chunk:
+                    if _looks_like_expo_token(msg.get('to')):
+                        payload.append({
+                            'to': msg.get('to'),
+                            'title': msg.get('title'),
+                            'body': msg.get('body'),
+                            'data': msg.get('data', {}),
+                        })
+                if not payload:
+                    continue
+                r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
+                try:
+                    print(f"[PUSH][EXPO] status={r.status_code} text={r.text}")
+                except Exception:
+                    print(f"[PUSH][EXPO] response status={r.status_code}")
+            except Exception as e:
+                print(f"[PUSH][EXPO] Failed to send expo push: {e}")
+        # continue to attempt FCM for non-expo tokens if key available
+
+    # Send remaining (non-Expo) messages via FCM if configured
+    if fcm_key:
+        fcm_url = 'https://fcm.googleapis.com/fcm/send'
+        headers = {'Authorization': f'key={fcm_key}', 'Content-Type': 'application/json'}
+        for msg in messages:
+            to = msg.get('to')
+            if _looks_like_expo_token(to):
+                # already handled via Expo
+                continue
+            payload = {
+                'to': to,
+                'notification': {'title': msg.get('title'), 'body': msg.get('body')},
+                'data': msg.get('data', {})
+            }
+            try:
+                r = requests.post(fcm_url, headers=headers, data=json.dumps(payload), timeout=10)
+                try:
+                    print(f"[PUSH][FCM] to={to} status={r.status_code} text={r.text}")
+                except Exception:
+                    print(f"[PUSH][FCM] to={to} status={r.status_code}")
+            except Exception as e:
+                print(f"[PUSH][FCM] Failed to send fcm push to {to}: {e}")
+        return
+
+    # If neither provider available and no expo tokens found, log and exit
+    if not any_expo:
+        print('[PUSH] No push provider configured and no Expo tokens detected; skipping push send')
+    else:
+        print('[PUSH] Expo tokens detected and attempted send (see logs). No FCM key configured for non-Expo tokens.')
+
+
+# Helper to create message objects
+def _create_push_messages_for_notification_rows(rows):
+    messages = []
+    with Session(engine) as s:
+        for n in rows:
+            try:
+                # lookup device tokens for user
+                devs = s.exec(select(Device).where(Device.user_id == n.user_id)).all()
+                for d in devs:
+                    messages.append({
+                        'to': d.token,
+                        'title': 'Przypomnienie serwisowe',
+                        'body': n.message,
+                        'data': {'notification_id': n.id, 'service_id': n.service_id}
+                    })
+            except Exception as e:
+                print(f"[PUSH] Error preparing message for notification id={n.id}: {e}")
+    return messages
+
+
+# Device registration endpoint
+@app.post('/devices/register')
+def register_device(payload: DeviceCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    if not payload.token:
+        raise HTTPException(status_code=400, detail='token required')
+    # upsert device for this user/token
+    existing = session.exec(select(Device).where(Device.token == payload.token)).first()
+    if existing:
+        existing.user_id = current_user.id
+        existing.platform = payload.platform
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+    new = Device(user_id=current_user.id, token=payload.token, platform=payload.platform)
+    session.add(new)
+    session.commit()
+    session.refresh(new)
+    return new
+
+
+# create background scheduler instance (if not already created)
+try:
+    _scheduler
+except NameError:
+    _scheduler = BackgroundScheduler()
+
+# Extend scheduler job to send push notifications right after creating pending Notification rows
 def _create_notifications_job():
     from datetime import datetime, timedelta
     with Session(engine) as s:
         # services not done
         services = s.exec(select(ServiceEvent).where(ServiceEvent.done == False)).all()
+        created_notifications = []
         for se in services:
             try:
                 vehicle = s.get(Vehicle, se.vehicle_id)
                 user_id = vehicle.user_id if vehicle else None
-                # by date: if next_due_date within next 7 days
+                # by date: if next_due_date within next 7 days or 1 day or today
                 if se.next_due_date:
                     now = datetime.utcnow()
-                    if se.next_due_date <= now + timedelta(days=7) and se.next_due_date >= now:
-                        # create notification if not exists
-                        existing = s.exec(select(Notification).where(Notification.service_id == se.id, Notification.type == 'service_date')).first()
-                        if not existing:
-                            n = Notification(user_id=user_id, vehicle_id=se.vehicle_id, service_id=se.id, type='service_date', message=f'Service "{se.type}" due on {se.next_due_date.date()}', created_at=datetime.utcnow(), due_date=se.next_due_date)
-                            s.add(n)
-                            s.commit()
+                    # schedule for 7 days, 1 day, and same-day (if exact date)
+                    for days_before in (7, 1, 0):
+                        target = se.next_due_date - timedelta(days=days_before)
+                        # only create if target is within the last check window (approx 1 minute)
+                        # to avoid duplicates, check existing notification with same service_id and type and message
+                        if target <= now + timedelta(minutes=1) and target >= now - timedelta(minutes=1):
+                            ntype = 'service_date'
+                            msg = f'Service "{se.type}" due on {se.next_due_date.date()} (in {days_before} days)' if days_before > 0 else f'Service "{se.type}" due today'
+                            existing = s.exec(select(Notification).where(Notification.service_id == se.id, Notification.type == ntype, Notification.message == msg)).first()
+                            if not existing:
+                                n = Notification(user_id=user_id, vehicle_id=se.vehicle_id, service_id=se.id, type=ntype, message=msg, created_at=datetime.utcnow(), due_date=se.next_due_date)
+                                s.add(n)
+                                s.commit()
+                                created_notifications.append(n)
                 # by odometer
                 if se.next_due_odometer is not None:
                     current_od = _get_vehicle_current_odometer(s, se.vehicle_id) or 0
+                    # if odometer reached or within threshold (e.g., 0 km before), immediate notification
                     if current_od >= se.next_due_odometer:
-                        existing = s.exec(select(Notification).where(Notification.service_id == se.id, Notification.type == 'service_odometer')).first()
+                        ntype = 'service_odometer'
+                        msg = f'Service "{se.type}" due by odometer {se.next_due_odometer}'
+                        existing = s.exec(select(Notification).where(Notification.service_id == se.id, Notification.type == ntype, Notification.message == msg)).first()
                         if not existing:
-                            n = Notification(user_id=user_id, vehicle_id=se.vehicle_id, service_id=se.id, type='service_odometer', message=f'Service "{se.type}" due by odometer {se.next_due_odometer}', created_at=datetime.utcnow(), due_date=None)
+                            n = Notification(user_id=user_id, vehicle_id=se.vehicle_id, service_id=se.id, type=ntype, message=msg, created_at=datetime.utcnow(), due_date=None)
                             s.add(n)
                             s.commit()
+                            created_notifications.append(n)
             except Exception as e:
                 print(f'[SCHED] Error while processing service id={se.id}: {e}')
 
-# create background scheduler and start it
-_scheduler = BackgroundScheduler()
-_scheduler.add_job(_create_notifications_job, 'interval', minutes=1, id='service_notifications', replace_existing=True)
+        # After creating notifications, prepare push messages and send
+        if created_notifications:
+            msgs = _create_push_messages_for_notification_rows(created_notifications)
+            if msgs:
+                _send_push_messages(msgs)
+
+
+# adjust scheduler frequency: run every hour (currently configured every minute)
+try:
+    _scheduler.remove_job('service_notifications')
+except Exception:
+    pass
+_scheduler.add_job(_create_notifications_job, 'cron', hour='7', minute='0', id='service_notifications', replace_existing=True)
 try:
     _scheduler.start()
-    print('[SCHED] Notification scheduler started')
+    print('[SCHED] Notification scheduler started (daily at 07:00)')
 except Exception as e:
     print(f'[SCHED] Failed to start scheduler: {e}')
 
-# -------------------------------
-# Ranking endpoints (anonymous TOP10)
-# -------------------------------
-from typing import Dict
-
-@app.get('/ranking/top10')
-@app.get('/ranking/top10/')
-def ranking_top10(metric: str = 'cost_per_km', period: str = 'last_6_months', session: Session = Depends(get_session)):
-    """Return anonymous TOP10 ranking for the chosen metric.
-    metric: 'cost_per_km' or 'avg_consumption'
-    period: 'last_3_months'|'last_6_months'|'last_12_months'
-    Returns a list of {position, value, percentile}
-    Never returns user identifiers or emails.
-    """
-    # validate metric
-    if metric not in ('cost_per_km', 'avg_consumption'):
-        raise HTTPException(status_code=400, detail='Invalid metric')
-
-    # determine date threshold for period
-    from datetime import datetime, timedelta
-    now = datetime.utcnow()
-    if period == 'last_3_months':
-        threshold = now - timedelta(days=90)
-    elif period == 'last_6_months':
-        threshold = now - timedelta(days=180)
-    elif period == 'last_12_months':
-        threshold = now - timedelta(days=365)
-    else:
-        raise HTTPException(status_code=400, detail='Invalid period')
-
-    # For each user (excluding opt-out), compute per-user aggregate value across their vehicles
-    # We compute either total_cost / total_distance (cost_per_km) or avg_consumption (liters/100km)
-    # Approach: fetch users who have fuel entries in timeframe and are not opted out
-    # Steps:
-    # 1) get user ids with entries
-    rows = session.exec(
-        select(User.id).where(User.opt_out_ranking == False)
-    ).all()
-    user_ids = [r for r in rows]
-
-    user_stats = []
-    for uid in user_ids:
-        # fetch vehicles of user
-        vehicles = session.exec(select(Vehicle.id).where(Vehicle.user_id == uid)).all()
-        if not vehicles:
-            continue
-        total_cost = 0.0
-        total_liters = 0.0
-        min_odometer = None
-        max_odometer = None
-        for vid in vehicles:
-            entries = session.exec(
-                select(FuelEntry).where(FuelEntry.vehicle_id == vid, FuelEntry.date >= threshold).order_by(FuelEntry.date)
-            ).all()
-            if not entries:
-                continue
-            # aggregate per vehicle
-            liters = sum([e.liters for e in entries if getattr(e, 'liters', None) is not None])
-            cost = sum([e.total_cost if getattr(e, 'total_cost', None) is not None else 0.0 for e in entries])
-            odoms = [e.odometer for e in entries if getattr(e, 'odometer', None) is not None]
-            if odoms:
-                vmin = min(odoms)
-                vmax = max(odoms)
-                if min_odometer is None or vmin < min_odometer:
-                    min_odometer = vmin
-                if max_odometer is None or vmax > max_odometer:
-                    max_odometer = vmax
-            total_cost += cost
-            total_liters += liters
-        # compute stats for user
-        distance = (max_odometer - min_odometer) if (min_odometer is not None and max_odometer is not None) else 0
-        if metric == 'cost_per_km':
-            if distance <= 0:
-                continue
-            value = round(total_cost / distance, 4)
-        else:  # avg_consumption
-            if distance <= 0:
-                continue
-            value = round((total_liters / distance) * 100, 3)
-        user_stats.append({'user_id': uid, 'value': value})
-
-    if not user_stats:
-        return {'ranking': []}
-
-    # sort ascending for both metrics (lower is better)
-    user_stats.sort(key=lambda x: x['value'])
-
-    # compute percentiles and anonymize
-    total = len(user_stats)
-    out = []
-    for idx, item in enumerate(user_stats[:10]):
-        # percentile: percentage of users with worse (higher) value
-        better_count = idx  # sorted ascending
-        percentile = round(100.0 * (1 - (idx / max(1, total - 1))), 2) if total > 1 else 100.0
-        out.append({'position': idx + 1, 'value': item['value'], 'percentile': percentile})
-
-    return {'ranking': out, 'total_users_considered': total}
-
-
-@app.post('/ranking/optout')
-def ranking_optout(payload: Dict[str, bool], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    """Set opt-out preference for the current user: payload {"opt_out": true/false}"""
-    opt = payload.get('opt_out')
-    if opt is None:
-        raise HTTPException(status_code=400, detail='opt_out field required')
-    current_user.opt_out_ranking = bool(opt)
-    session.add(current_user)
-    session.commit()
-    session.refresh(current_user)
-    return {'opt_out_ranking': current_user.opt_out_ranking}
-
-@app.get('/debug/routes')
-def debug_routes():
-    """Return list of registered route paths for quick debugging (useful to check missing endpoints)."""
+# Debug endpoint to trigger notification generation immediately (protected)
+@app.post('/debug/trigger_notifications')
+def debug_trigger_notifications(current_user: User = Depends(get_current_user)):
     try:
-        paths = [r.path for r in app.routes]
-        return {"routes": paths}
+        # call job synchronously to produce Notifications and attempt push sends
+        _create_notifications_job()
+        return {'status': 'triggered'}
     except Exception as e:
-        return {"error": str(e)}
-
+        return {'error': str(e)}

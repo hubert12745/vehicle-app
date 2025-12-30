@@ -1,11 +1,44 @@
+// Ensure EXPO_API_URL is set early so the api client can derive the correct backend host
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+try {
+  // respect any existing override
+  // @ts-ignore
+  const already = (global as any).EXPO_API_URL || (process && (process.env as any)?.EXPO_API_URL);
+  if (!already) {
+    // expo manifests differ across SDK versions; try a few common locations
+    // @ts-ignore
+    const dbg = (Constants as any).manifest?.debuggerHost || (Constants as any).manifest2?.debuggerHost || (Constants as any).debuggerHost;
+    if (dbg && typeof dbg === 'string') {
+      const host = dbg.split(':')[0];
+      // default backend port used by project
+      (global as any).EXPO_API_URL = `http://${host}:8000`;
+      console.log('[INIT] Set global.EXPO_API_URL from debuggerHost:', (global as any).EXPO_API_URL);
+    } else if (Platform.OS === 'android') {
+      // Android emulator mapping
+      (global as any).EXPO_API_URL = 'http://10.0.2.2:8000';
+      console.log('[INIT] Set global.EXPO_API_URL for Android emulator:', (global as any).EXPO_API_URL);
+    } else {
+      (global as any).EXPO_API_URL = 'http://localhost:8000';
+      console.log('[INIT] Set global.EXPO_API_URL fallback:', (global as any).EXPO_API_URL);
+    }
+  } else {
+    // @ts-ignore
+    console.log('[INIT] EXPO_API_URL already set:', (global as any).EXPO_API_URL || (process && (process.env as any)?.EXPO_API_URL));
+  }
+} catch (e) {
+  // ignore failures here; api.ts will still try other heuristics
+}
+
 import 'react-native-reanimated';
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from "react";
-import { View, ActivityIndicator, Button, BackHandler, Platform } from "react-native";
+import { View, ActivityIndicator, Button, BackHandler, Platform as RnPlatform } from "react-native";
 import Storage from "./storage";
 import LoginScreen from "./screens/Login";
 import RegisterScreen from "./screens/Register";
 import VehiclesScreen from "./screens/Vehicles";
+import { registerForPushNotificationsAsync, startNotificationsPoll, stopNotificationsPoll } from './notifications';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
@@ -26,6 +59,16 @@ export default function App() {
           apiModule.defaults.headers.common = apiModule.defaults.headers.common || {};
           apiModule.defaults.headers.common.Authorization = `Bearer ${t}`;
           console.log('App: api.defaults Authorization set from stored token');
+
+          // register push token with backend (if device supports)
+          try {
+            const pushToken = await registerForPushNotificationsAsync();
+            console.log('[APP] push token', pushToken);
+            // start polling for notifications (local scheduling fallback)
+            startNotificationsPoll();
+          } catch (e) {
+            console.warn('[APP] register push failed', e);
+          }
         }
       } catch (e) {
         // ignore if require isn't available in this environment
@@ -33,11 +76,17 @@ export default function App() {
       setLoading(false);
     };
     loadToken();
+
+    // cleanup on unmount
+    return () => {
+      try { stopNotificationsPoll(); } catch (e) {}
+    };
   }, []);
 
   const handleLogout = async () => {
     await Storage.removeItem("token");
     setToken(null);
+    try { stopNotificationsPoll(); } catch (e) {}
   };
 
   useEffect(() => {
@@ -51,7 +100,7 @@ export default function App() {
       return false;
     };
 
-    if (Platform.OS === 'android') {
+    if (RnPlatform.OS === 'android') {
       const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
       return () => {
         try {

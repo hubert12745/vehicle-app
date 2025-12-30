@@ -119,4 +119,24 @@ export async function uploadFuelWithReceipt(formData: FormData) {
   });
 }
 
+// Register device push token with backend
+export async function registerDevice(token: string, platform?: string) {
+  try {
+    return api.post('/devices/register', { token, platform });
+  } catch (e) {
+    console.warn('[API] registerDevice failed', e);
+    throw e;
+  }
+}
+
+// Trigger backend notification generation (debug)
+export async function triggerNotifications() {
+  try {
+    return api.post('/debug/trigger_notifications');
+  } catch (e) {
+    console.warn('[API] triggerNotifications failed', e);
+    throw e;
+  }
+}
+
 export default api;

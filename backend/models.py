@@ -61,6 +61,15 @@ class ServiceEvent(SQLModel, table=True):
     vehicle: Vehicle = Relationship(back_populates="service_events")
 
 
+# New: Device tokens for push notifications
+class Device(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    token: str = Field(index=True)
+    platform: Optional[str] = None  # 'android'|'ios'|'expo'
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # =======================
 # CREATE / READ MODELE (API)
 # =======================
@@ -164,7 +173,18 @@ class NotificationRead(SQLModel):
     due_date: Optional[datetime] = None
     read: bool
 
-# --- Auth DTOs expected by main.py ---
+# Device DTO for registration
+class DeviceCreate(SQLModel):
+    token: str
+    platform: Optional[str] = None
+
+class DeviceRead(SQLModel):
+    id: int
+    token: str
+    platform: Optional[str] = None
+    created_at: datetime
+
+# --- Auth DTOS expected by main.py ---
 class UserLogin(SQLModel):
     username: str
     password: str
